@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -12,7 +13,7 @@ import (
 
 func cmdShare(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: roster share plan|set")
+		fmt.Fprintln(stderr, "usage: roster share plan|apply|rollback|backups|set")
 		return 1
 	}
 	switch args[0] {
@@ -20,6 +21,12 @@ func cmdShare(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return cmdShareSet(p, args[1:], stdout, stderr)
 	case "plan":
 		return cmdSharePlan(p, args[1:], stdout, stderr)
+	case "apply":
+		return cmdShareApply(p, args[1:], stdout, stderr)
+	case "rollback":
+		return cmdShareRollback(p, args[1:], stdout, stderr)
+	case "backups":
+		return cmdShareBackups(p, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "roster: unknown share command %q\n", args[0])
 		return 1
@@ -78,4 +85,63 @@ func printPlan(pl share.Plan, stdout io.Writer) {
 	}
 	tw.Flush()
 	fmt.Fprintf(stdout, "%d conflicts will be skipped\n", pl.Conflicts())
+}
+
+func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	reg, pl, err := loadPlan(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	m, err := share.Apply(p, reg, pl, share.ApplyOptions{Force: hasFlag(args, "--force")})
+	if errors.Is(err, share.ErrClaudeRunning) {
+		fmt.Fprintf(stderr, "roster: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
+		return 2
+	}
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if hasFlag(args, "--json") {
+		return writeJSON(stdout, stderr, m)
+	}
+	for _, s := range m.Steps {
+		fmt.Fprintf(stdout, "done  %s %s %s\n", s.Action.Account, s.Action.Item, s.Action.Kind)
+		for _, c := range s.Conflicts {
+			fmt.Fprintf(stdout, "      kept shared copy, account copy is in the backup: %s\n", c)
+		}
+	}
+	fmt.Fprintf(stdout, "%d conflicts skipped; run `roster doctor` to review\n", pl.Conflicts())
+	fmt.Fprintf(stdout, "backup %s; undo with: roster share rollback %s\n", m.ID, m.ID)
+	return 0
+}
+
+func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: roster share rollback <backup-id>   (list ids with: roster share backups)")
+		return 1
+	}
+	if err := share.Rollback(p, args[0]); err != nil {
+		return fail(stderr, err)
+	}
+	fmt.Fprintf(stdout, "rolled back %s\n", args[0])
+	return 0
+}
+
+func cmdShareBackups(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	ids, err := share.ListBackups(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	for _, id := range ids {
+		m, err := share.LoadManifest(p, id)
+		if err != nil {
+			fmt.Fprintf(stdout, "%s  (unreadable: %v)\n", id, err)
+			continue
+		}
+		state := ""
+		if m.RolledBack {
+			state = "  rolled back"
+		}
+		fmt.Fprintf(stdout, "%s  %d steps%s\n", id, len(m.Steps), state)
+	}
+	return 0
 }
