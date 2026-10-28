@@ -20,6 +20,7 @@ var commands = map[string]command{
 	"share":    cmdShare,
 	"doctor":   cmdDoctor,
 	"add":      cmdAdd,
+	"shim":     cmdShim,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
