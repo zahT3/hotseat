@@ -17,6 +17,7 @@ var commands = map[string]command{
 	"accounts": cmdAccounts,
 	"use":      cmdUse,
 	"current":  cmdCurrent,
+	"share":    cmdShare,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
