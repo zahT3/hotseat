@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/zahT3/roster/internal/paths"
 )
@@ -57,7 +58,7 @@ func LoadClassifier(p paths.Paths) (Classifier, error) {
 }
 
 func (c Classifier) Classify(name string) Class {
-	if cl, ok := c.overrides[name]; ok {
+	if cl, ok := c.overrides[name]; ok && validOverride(name, cl) {
 		return cl
 	}
 	for cl, names := range builtin {
@@ -77,7 +78,7 @@ func (c Classifier) SharedNames() []string {
 		}
 	}
 	for n, cl := range c.overrides {
-		if cl == Shared && !slices.Contains(names, n) {
+		if cl == Shared && validOverride(n, cl) && !slices.Contains(names, n) {
 			names = append(names, n)
 		}
 	}
@@ -92,7 +93,7 @@ func SetOverride(p paths.Paths, name string, c Class) error {
 	if c == Shared && slices.Contains(neverShared, name) {
 		return fmt.Errorf("%s holds the account login and cannot be shared", name)
 	}
-	if name == "" || name != filepath.Base(name) {
+	if !validName(name) {
 		return fmt.Errorf("invalid entry name %q", name)
 	}
 	o, err := loadOverrides(p)
@@ -108,6 +109,21 @@ func SetOverride(p paths.Paths, name string, c Class) error {
 		return err
 	}
 	return os.WriteFile(p.OverridesFile(), append(b, '\n'), 0o600)
+}
+
+// validName accepts only a single directory entry name. "." and ".." would
+// make the whole config dir (credentials included) or $HOME look shared.
+func validName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.HasPrefix(name, "-") && name == filepath.Base(name)
+}
+
+// validOverride re-checks rules SetOverride enforces, so a hand-edited
+// overrides file cannot share login files or path tricks.
+func validOverride(name string, c Class) bool {
+	if !validName(name) {
+		return false
+	}
+	return !(c == Shared && slices.Contains(neverShared, name))
 }
 
 func loadOverrides(p paths.Paths) (map[string]Class, error) {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/zahT3/roster/internal/account"
@@ -71,6 +72,9 @@ func cmdSharePlan(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 }
 
 func printPlan(pl share.Plan, stdout io.Writer) {
+	for _, s := range pl.Skipped {
+		fmt.Fprintf(stdout, "skipped %s\n", s)
+	}
 	if len(pl.Actions) == 0 {
 		fmt.Fprintln(stdout, "nothing to do: all accounts already share work data")
 		return
@@ -106,7 +110,10 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	for _, s := range m.Steps {
 		fmt.Fprintf(stdout, "done  %s %s %s\n", s.Action.Account, s.Action.Item, s.Action.Kind)
 		for _, c := range s.Conflicts {
-			fmt.Fprintf(stdout, "      kept shared copy, account copy is in the backup: %s\n", c)
+			fmt.Fprintf(stdout, "      kept shared copy %s\n", tildePath(p, c))
+			if rel, err := filepath.Rel(s.Action.Target, c); err == nil && s.BackupPath != "" {
+				fmt.Fprintf(stdout, "      account copy saved at %s\n", tildePath(p, filepath.Join(s.BackupPath, rel)))
+			}
 		}
 	}
 	fmt.Fprintf(stdout, "%d conflicts skipped; run `roster doctor` to review\n", pl.Conflicts())
@@ -115,14 +122,28 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: roster share rollback <backup-id>   (list ids with: roster share backups)")
+	var id string
+	for _, a := range args {
+		if a != "--force" {
+			id = a
+		}
+	}
+	if id == "" {
+		fmt.Fprintln(stderr, "usage: roster share rollback <backup-id> [--force]   (list ids with: roster share backups)")
 		return 1
 	}
-	if err := share.Rollback(p, args[0]); err != nil {
+	moved, err := share.Rollback(p, id, share.RollbackOptions{Force: hasFlag(args, "--force")})
+	for _, m := range moved {
+		fmt.Fprintf(stdout, "changed since the apply, moved aside (not deleted): %s\n", tildePath(p, m))
+	}
+	if errors.Is(err, share.ErrClaudeRunning) {
+		fmt.Fprintf(stderr, "roster: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
+		return 2
+	}
+	if err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "rolled back %s\n", args[0])
+	fmt.Fprintf(stdout, "rolled back %s\n", id)
 	return 0
 }
 

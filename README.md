@@ -41,7 +41,7 @@ roster doctor               # report drift, unknown entries, and setup problems
 
 `share apply` merges each account's `history.jsonl` into the shared one and copies entries that only exist in an account dir into `~/.claude`. When both sides have a different version of the same file, the shared copy wins and the account's copy stays in the backup; `apply` lists those paths.
 
-Roll back right after an apply if something looks wrong. A rollback restores the files as they were at apply time, so history written after the apply would be lost.
+Roll back with every claude session closed (it refuses otherwise, like apply). A rollback puts each file back as it was before the apply. Files that changed since then, such as `history.jsonl` with prompts typed after the apply, are moved into `~/.config/roster/backups/<id>/rollback-removed/` rather than overwritten, and rollback prints where each one went. For `.claude.json` only the `mcpServers` key is restored; everything Claude Code changed since stays. If a rollback stops on an error, fix the cause and run it again; it continues where it stopped.
 
 Entries Roster does not recognise are left alone and reported by `roster doctor`. Classify one with `roster share set <name> shared|local`. `plugins/` and `sessions/` stay per account for now.
 

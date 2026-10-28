@@ -64,6 +64,29 @@ func TestOverrideRejectsPending(t *testing.T) {
 	}
 }
 
+func TestOverrideRejectsDotNames(t *testing.T) {
+	p := testutil.FakeHome(t)
+	for _, name := range []string{".", "..", "-rf", "a/b"} {
+		if err := share.SetOverride(p, name, share.Shared); err == nil {
+			t.Errorf("SetOverride(%q) must be refused", name)
+		}
+	}
+}
+
+func TestHandEditedOverridesNeverShareCredentials(t *testing.T) {
+	p := testutil.FakeHome(t)
+	testutil.WriteFile(t, p.OverridesFile(), `{".credentials.json":"shared",".claude.json":"shared",".":"shared","..":"shared"}`)
+	c, err := share.LoadClassifier(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range c.SharedNames() {
+		if n == ".credentials.json" || n == ".claude.json" || n == "." || n == ".." {
+			t.Errorf("SharedNames contains %q", n)
+		}
+	}
+}
+
 func TestOverrideNeverSharesCredentials(t *testing.T) {
 	p := testutil.FakeHome(t)
 	for _, name := range []string{".credentials.json", ".claude.json"} {

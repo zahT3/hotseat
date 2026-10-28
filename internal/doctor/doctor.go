@@ -41,8 +41,13 @@ func Check(p paths.Paths, reg account.Registry, env []string) ([]Finding, error)
 		id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
 		switch {
 		case errors.Is(err, account.ErrNoIdentity):
-			add("warn", "identity-missing", a.Name, a.ConfigDir,
-				fmt.Sprintf("not logged in; run: CLAUDE_CONFIG_DIR=%s claude auth login", a.ConfigDir))
+			hint := fmt.Sprintf("CLAUDE_CONFIG_DIR=%s claude auth login", a.ConfigDir)
+			if a.IsDefault {
+				// The default account must log in with the variable unset,
+				// or the login lands in a different keychain entry.
+				hint = "env -u CLAUDE_CONFIG_DIR claude auth login"
+			}
+			add("warn", "identity-missing", a.Name, a.ConfigDir, "not logged in; run: "+hint)
 		case err != nil:
 			return nil, err
 		case id.AccountUUID != a.AccountUUID:

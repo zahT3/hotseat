@@ -104,6 +104,20 @@ func TestDoctorIdentityMissing(t *testing.T) {
 	}
 }
 
+func TestDoctorDefaultLoginHintKeepsConfigDirUnset(t *testing.T) {
+	f, env := cleanSetup(t)
+	os.Remove(f.p.DefaultClaudeJSON())
+	for _, x := range check(t, f, env) {
+		if x.Code == "identity-missing" && x.Account == "claude" {
+			if strings.Contains(x.Message, "CLAUDE_CONFIG_DIR=") || !strings.Contains(x.Message, "claude auth login") {
+				t.Errorf("default-account hint = %q", x.Message)
+			}
+			return
+		}
+	}
+	t.Error("identity-missing not reported for the default account")
+}
+
 func TestDoctorSharedMissing(t *testing.T) {
 	f, env := cleanSetup(t)
 	os.MkdirAll(filepath.Join(f.p.CoreDir(), "plans"), 0o755)

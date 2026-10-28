@@ -18,14 +18,22 @@ type ApplyOptions struct {
 	Running func() ([]int, error)
 }
 
+type RollbackOptions struct {
+	Force   bool
+	Running func() ([]int, error)
+}
+
 type Manifest struct {
 	ID         string `json:"id"`
 	RolledBack bool   `json:"rolledBack,omitempty"`
 	Steps      []Step `json:"steps"`
 }
 
-// Step records every change one action made, so Rollback can undo it. A
-// failed action still records whatever it changed before failing.
+// Step records the changes one action made. Each field is written to the
+// manifest before the change happens and cleared again if the change fails,
+// so after a crash rollback finds every change that might have happened.
+// Rollback clears each field as it undoes that change, so a failed rollback
+// can be retried from where it stopped.
 type Step struct {
 	Action         Action   `json:"action"`
 	BackupPath     string   `json:"backupPath,omitempty"`
@@ -34,32 +42,56 @@ type Step struct {
 	Conflicts      []string `json:"conflicts,omitempty"`
 	Created        string   `json:"created,omitempty"`
 	Adopted        bool     `json:"adopted,omitempty"`
+	Undone         bool     `json:"undone,omitempty"`
 }
 
 // beforeStep is a test hook; nil in production.
 var beforeStep func(i int)
 
+// journal keeps the manifest on disk in step with every change.
+type journal struct {
+	dir string
+	m   Manifest
+}
+
+func (j *journal) begin(a Action) int {
+	j.m.Steps = append(j.m.Steps, Step{Action: a})
+	return len(j.m.Steps) - 1
+}
+
+func (j *journal) record(i int, change func(s *Step)) error {
+	change(&j.m.Steps[i])
+	return saveManifest(j.dir, j.m)
+}
+
+func checkRunning(force bool, running func() ([]int, error)) error {
+	if force {
+		return nil
+	}
+	if running == nil {
+		running = RunningClaude
+	}
+	pids, err := running()
+	if err != nil {
+		return fmt.Errorf("check for running claude: %w", err)
+	}
+	if len(pids) > 0 {
+		return fmt.Errorf("%w (pids %v)", ErrClaudeRunning, pids)
+	}
+	return nil
+}
+
 func Apply(p paths.Paths, reg account.Registry, pl Plan, opts ApplyOptions) (Manifest, error) {
-	if !opts.Force {
-		running := opts.Running
-		if running == nil {
-			running = RunningClaude
-		}
-		pids, err := running()
-		if err != nil {
-			return Manifest{}, fmt.Errorf("check for running claude: %w", err)
-		}
-		if len(pids) > 0 {
-			return Manifest{}, fmt.Errorf("%w (pids %v)", ErrClaudeRunning, pids)
-		}
+	if err := checkRunning(opts.Force, opts.Running); err != nil {
+		return Manifest{}, err
 	}
 	id, dir, err := newBackupDir(p)
 	if err != nil {
 		return Manifest{}, err
 	}
-	m := Manifest{ID: id, Steps: []Step{}}
-	if err := saveManifest(dir, m); err != nil {
-		return m, err
+	j := &journal{dir: dir, m: Manifest{ID: id, Steps: []Step{}}}
+	if err := saveManifest(dir, j.m); err != nil {
+		return j.m, err
 	}
 	for i, a := range pl.Actions {
 		if a.Kind == Conflict {
@@ -68,114 +100,124 @@ func Apply(p paths.Paths, reg account.Registry, pl Plan, opts ApplyOptions) (Man
 		if beforeStep != nil {
 			beforeStep(i)
 		}
-		steps, err := applyAction(p, reg, dir, i, a)
-		m.Steps = append(m.Steps, steps...)
-		if serr := saveManifest(dir, m); serr != nil && err == nil {
-			err = serr
-		}
-		if err != nil {
-			return m, fmt.Errorf("%s %s: %w (undo with: roster share rollback %s)", a.Account, a.Item, err, id)
+		if err := applyAction(p, reg, j, i, a); err != nil {
+			return j.m, fmt.Errorf("%s %s: %w (undo with: roster share rollback %s)", a.Account, a.Item, err, id)
 		}
 	}
-	return m, nil
+	return j.m, nil
 }
 
-func applyAction(p paths.Paths, reg account.Registry, dir string, i int, a Action) ([]Step, error) {
+func applyAction(p paths.Paths, reg account.Registry, j *journal, i int, a Action) error {
 	switch a.Kind {
 	case Link:
-		if err := os.Symlink(a.Target, a.Path); err != nil {
-			return nil, err
-		}
-		return []Step{{Action: a, Created: a.Path}}, nil
+		return link(j, j.begin(a))
 	case ReplaceWithLink:
-		return moveAndLink(dir, Step{Action: a})
+		return moveAndLink(j, j.begin(a))
 	case MergeJSONL:
-		return mergeJSONLStep(dir, i, a)
+		return mergeJSONLStep(j, j.begin(a), i)
 	case MergeDir:
-		added, conflicts, err := mergeTree(a.Path, a.Target)
-		s := Step{Action: a, AddedToCore: added, Conflicts: conflicts}
+		idx := j.begin(a)
+		conflicts, err := mergeTree(a.Path, a.Target, func(added string) error {
+			return j.record(idx, func(s *Step) { s.AddedToCore = append(s.AddedToCore, added) })
+		})
 		if err != nil {
-			if len(added) > 0 {
-				return []Step{s}, err
-			}
-			return nil, err
+			return err
 		}
-		return moveAndLink(dir, s)
+		if err := j.record(idx, func(s *Step) { s.Conflicts = conflicts }); err != nil {
+			return err
+		}
+		return moveAndLink(j, idx)
 	case Adopt:
+		idx := j.begin(a)
+		if exists(a.Target) {
+			return fmt.Errorf("%s appeared since the plan was made; refusing to overwrite it", a.Target)
+		}
 		if err := os.MkdirAll(filepath.Dir(a.Target), 0o755); err != nil {
-			return nil, err
+			return err
+		}
+		if err := j.record(idx, func(s *Step) { s.Adopted = true }); err != nil {
+			return err
 		}
 		if err := os.Rename(a.Path, a.Target); err != nil {
-			return nil, err
+			j.record(idx, func(s *Step) { s.Adopted = false })
+			return err
 		}
-		s := Step{Action: a, Adopted: true}
-		if err := os.Symlink(a.Target, a.Path); err != nil {
-			return []Step{s}, err
-		}
-		s.Created = a.Path
-		return []Step{s}, nil
+		return link(j, idx)
 	case SyncMCP:
-		return syncMCP(p, reg, dir, i)
+		return syncMCP(p, reg, j, i)
 	default:
-		return nil, fmt.Errorf("unknown action %q", a.Kind)
+		return fmt.Errorf("unknown action %q", a.Kind)
 	}
 }
 
-// moveAndLink moves the account's copy into the backup dir and replaces it
-// with a symlink to the shared copy.
-func moveAndLink(dir string, s Step) ([]Step, error) {
-	backup := filepath.Join(dir, s.Action.Account, s.Action.Item)
-	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
-		return stepsIfChanged(s), err
+func link(j *journal, idx int) error {
+	a := j.m.Steps[idx].Action
+	if err := j.record(idx, func(s *Step) { s.Created = a.Path }); err != nil {
+		return err
 	}
-	if err := os.Rename(s.Action.Path, backup); err != nil {
-		return stepsIfChanged(s), err
-	}
-	s.BackupPath = backup
-	if err := os.Symlink(s.Action.Target, s.Action.Path); err != nil {
-		return []Step{s}, err
-	}
-	s.Created = s.Action.Path
-	return []Step{s}, nil
-}
-
-func stepsIfChanged(s Step) []Step {
-	if s.CoreBackupPath != "" || len(s.AddedToCore) > 0 || s.BackupPath != "" || s.Created != "" || s.Adopted {
-		return []Step{s}
+	if err := os.Symlink(a.Target, a.Path); err != nil {
+		j.record(idx, func(s *Step) { s.Created = "" })
+		return err
 	}
 	return nil
 }
 
-func mergeJSONLStep(dir string, i int, a Action) ([]Step, error) {
+// moveAndLink moves the account's copy into the backup dir and replaces it
+// with a symlink to the shared copy.
+func moveAndLink(j *journal, idx int) error {
+	a := j.m.Steps[idx].Action
+	backup := filepath.Join(j.dir, a.Account, a.Item)
+	if exists(backup) {
+		return fmt.Errorf("backup path %s already exists", backup)
+	}
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		return err
+	}
+	if err := j.record(idx, func(s *Step) { s.BackupPath = backup }); err != nil {
+		return err
+	}
+	if err := os.Rename(a.Path, backup); err != nil {
+		j.record(idx, func(s *Step) { s.BackupPath = "" })
+		return err
+	}
+	return link(j, idx)
+}
+
+func mergeJSONLStep(j *journal, idx, i int) error {
+	a := j.m.Steps[idx].Action
 	coreBytes, err := os.ReadFile(a.Target)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	acctBytes, err := os.ReadFile(a.Path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	info, err := os.Stat(a.Target)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	coreBackup := filepath.Join(dir, "core", fmt.Sprintf("%d-%s", i, a.Item))
+	coreBackup := filepath.Join(j.dir, "core", fmt.Sprintf("%d-%s", i, a.Item))
 	if err := os.MkdirAll(filepath.Dir(coreBackup), 0o700); err != nil {
-		return nil, err
+		return err
 	}
 	if err := copyFile(a.Target, coreBackup, info.Mode().Perm()); err != nil {
-		return nil, err
+		return err
+	}
+	if err := j.record(idx, func(s *Step) { s.CoreBackupPath = coreBackup }); err != nil {
+		return err
 	}
 	if err := writeFileAtomic(a.Target, mergeJSONL(coreBytes, acctBytes), info.Mode().Perm()); err != nil {
-		return nil, err
+		j.record(idx, func(s *Step) { s.CoreBackupPath = "" })
+		return err
 	}
-	return moveAndLink(dir, Step{Action: a, CoreBackupPath: coreBackup})
+	return moveAndLink(j, idx)
 }
 
-func syncMCP(p paths.Paths, reg account.Registry, dir string, i int) ([]Step, error) {
+func syncMCP(p paths.Paths, reg account.Registry, j *journal, i int) error {
 	def, ok := reg.Default()
 	if !ok {
-		return nil, errors.New("no default account registered")
+		return errors.New("no default account registered")
 	}
 	var files []string
 	for _, a := range reg.Accounts {
@@ -183,136 +225,192 @@ func syncMCP(p paths.Paths, reg account.Registry, dir string, i int) ([]Step, er
 	}
 	merged, _, err := mergedMCP(files, account.ClaudeJSONPath(p, def))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var steps []Step
 	for n, a := range reg.Accounts {
 		f := files[n]
 		servers, ok, err := readServers(f)
 		if err != nil {
-			return steps, err
+			return err
 		}
 		if !ok || sameServers(servers, merged) {
 			continue
 		}
 		info, err := os.Stat(f)
 		if err != nil {
-			return steps, err
+			return err
 		}
-		backup := filepath.Join(dir, "mcp", fmt.Sprintf("%d-%s.claude.json", i, a.Name))
+		backup := filepath.Join(j.dir, "mcp", fmt.Sprintf("%d-%s.claude.json", i, a.Name))
 		if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
-			return steps, err
+			return err
 		}
 		if err := copyFile(f, backup, info.Mode().Perm()); err != nil {
-			return steps, err
+			return err
+		}
+		idx := j.begin(Action{Kind: SyncMCP, Account: a.Name, Item: "mcpServers", Path: f})
+		if err := j.record(idx, func(s *Step) { s.BackupPath = backup }); err != nil {
+			return err
 		}
 		if err := writeServers(f, merged, info.Mode().Perm()); err != nil {
-			return steps, err
+			j.record(idx, func(s *Step) { s.BackupPath = "" })
+			return err
 		}
-		steps = append(steps, Step{
-			Action:     Action{Kind: SyncMCP, Account: a.Name, Item: "mcpServers", Path: f},
-			BackupPath: backup,
-		})
 	}
-	return steps, nil
+	return nil
 }
 
-// writeServers replaces only the mcpServers key; every other key keeps its
-// value.
-func writeServers(file string, servers map[string]json.RawMessage, perm os.FileMode) error {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return err
+// Rollback undoes an apply in reverse order and stops at the first error, so
+// a retry after fixing the cause continues where it stopped. Files that
+// changed after the apply are moved aside into the backup rather than
+// overwritten; their paths are returned.
+func Rollback(p paths.Paths, id string, opts RollbackOptions) ([]string, error) {
+	if err := checkRunning(opts.Force, opts.Running); err != nil {
+		return nil, err
 	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(b, &doc); err != nil {
-		return fmt.Errorf("parse %s: %w", file, err)
-	}
-	raw, err := json.Marshal(servers)
-	if err != nil {
-		return err
-	}
-	doc["mcpServers"] = raw
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(file, append(out, '\n'), perm)
-}
-
-func Rollback(p paths.Paths, id string) error {
 	dir := filepath.Join(p.BackupsDir(), id)
 	m, err := loadManifest(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if m.RolledBack {
-		return fmt.Errorf("backup %s was already rolled back", id)
+		return nil, fmt.Errorf("backup %s was already rolled back", id)
 	}
-	var errs []error
-	for i := len(m.Steps) - 1; i >= 0; i-- {
-		if err := undoStep(dir, i, m.Steps[i]); err != nil {
-			errs = append(errs, fmt.Errorf("%s %s: %w", m.Steps[i].Action.Account, m.Steps[i].Action.Item, err))
+	j := &journal{dir: dir, m: m}
+	var moved []string
+	for i := len(j.m.Steps) - 1; i >= 0; i-- {
+		if j.m.Steps[i].Undone {
+			continue
+		}
+		mv, err := undoStep(j, i)
+		moved = append(moved, mv...)
+		if err != nil {
+			s := j.m.Steps[i]
+			return moved, fmt.Errorf("%s %s: %w (fix the cause and run the rollback again)", s.Action.Account, s.Action.Item, err)
 		}
 	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-	m.RolledBack = true
-	return saveManifest(dir, m)
+	j.m.RolledBack = true
+	return moved, saveManifest(dir, j.m)
 }
 
-func undoStep(dir string, i int, s Step) error {
-	if s.Action.Kind == SyncMCP {
-		b, err := os.ReadFile(s.BackupPath)
-		if err != nil {
-			return err
+func undoStep(j *journal, i int) ([]string, error) {
+	s := j.m.Steps[i]
+	a := s.Action
+	var moved []string
+
+	if a.Kind == SyncMCP {
+		if s.BackupPath != "" {
+			if err := restoreServers(s.BackupPath, a.Path); err != nil {
+				return nil, err
+			}
 		}
-		info, err := os.Stat(s.BackupPath)
-		if err != nil {
-			return err
-		}
-		return writeFileAtomic(s.Action.Path, b, info.Mode().Perm())
+		return nil, j.record(i, func(s *Step) { s.BackupPath = ""; s.Undone = true })
 	}
+
 	if s.Created != "" {
 		info, err := os.Lstat(s.Created)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
 		case err != nil:
-			return err
+			return nil, err
 		case info.Mode()&os.ModeSymlink == 0:
-			return fmt.Errorf("%s is no longer a symlink; refusing to remove it", s.Created)
+			return nil, fmt.Errorf("%s is no longer a symlink; refusing to remove it", s.Created)
 		default:
 			if err := os.Remove(s.Created); err != nil {
-				return err
+				return nil, err
 			}
+		}
+		if err := j.record(i, func(s *Step) { s.Created = "" }); err != nil {
+			return nil, err
 		}
 	}
 	if s.Adopted {
-		if err := os.Rename(s.Action.Target, s.Action.Path); err != nil {
-			return err
+		if exists(a.Target) {
+			if exists(a.Path) {
+				return nil, fmt.Errorf("%s exists; refusing to overwrite it with %s", a.Path, a.Target)
+			}
+			if err := os.Rename(a.Target, a.Path); err != nil {
+				return nil, err
+			}
+		}
+		if err := j.record(i, func(s *Step) { s.Adopted = false }); err != nil {
+			return nil, err
 		}
 	}
 	if s.BackupPath != "" {
-		if err := os.Rename(s.BackupPath, s.Action.Path); err != nil {
-			return err
+		if exists(s.BackupPath) {
+			if exists(a.Path) {
+				return nil, fmt.Errorf("%s exists; refusing to overwrite it with the backup %s", a.Path, s.BackupPath)
+			}
+			if err := os.Rename(s.BackupPath, a.Path); err != nil {
+				return nil, err
+			}
+		}
+		if err := j.record(i, func(s *Step) { s.BackupPath = "" }); err != nil {
+			return nil, err
 		}
 	}
 	if s.CoreBackupPath != "" {
-		if err := os.Rename(s.CoreBackupPath, s.Action.Target); err != nil {
-			return err
+		if exists(s.CoreBackupPath) {
+			if exists(a.Target) {
+				dest, err := moveAside(j.dir, fmt.Sprintf("%d-core", i), a.Target)
+				if err != nil {
+					return moved, err
+				}
+				moved = append(moved, dest)
+			}
+			if err := os.Rename(s.CoreBackupPath, a.Target); err != nil {
+				return moved, err
+			}
+		}
+		if err := j.record(i, func(s *Step) { s.CoreBackupPath = "" }); err != nil {
+			return moved, err
 		}
 	}
-	for j, added := range s.AddedToCore {
-		dest := filepath.Join(dir, "rollback-removed", fmt.Sprintf("%d-%d", i, j), filepath.Base(added))
-		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
-			return err
+	for len(j.m.Steps[i].AddedToCore) > 0 {
+		added := j.m.Steps[i].AddedToCore[0]
+		if exists(added) {
+			if _, err := moveAside(j.dir, fmt.Sprintf("%d-added", i), added); err != nil {
+				return moved, err
+			}
 		}
-		if err := os.Rename(added, dest); err != nil {
-			return err
+		if err := j.record(i, func(s *Step) { s.AddedToCore = s.AddedToCore[1:] }); err != nil {
+			return moved, err
 		}
 	}
-	return nil
+	return moved, j.record(i, func(s *Step) { s.Undone = true })
+}
+
+// moveAside moves path into <backup>/rollback-removed/<tag>/ under a name
+// that does not exist yet, and returns where it went.
+func moveAside(dir, tag, path string) (string, error) {
+	base := filepath.Join(dir, "rollback-removed", tag)
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		return "", err
+	}
+	dest := filepath.Join(base, filepath.Base(path))
+	for n := 2; exists(dest); n++ {
+		dest = filepath.Join(base, fmt.Sprintf("%s.%d", filepath.Base(path), n))
+	}
+	return dest, os.Rename(path, dest)
+}
+
+// restoreServers puts back only the mcpServers key from a backed-up
+// .claude.json, leaving every key Claude Code changed since then alone.
+func restoreServers(backup, file string) error {
+	servers, ok, err := readServers(backup)
+	if err != nil || !ok {
+		return err
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	return writeServers(file, servers, info.Mode().Perm())
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 func ListBackups(p paths.Paths) ([]string, error) {
@@ -341,15 +439,14 @@ func LoadManifest(p paths.Paths, id string) (Manifest, error) {
 }
 
 func newBackupDir(p paths.Paths) (string, string, error) {
+	if err := os.MkdirAll(p.BackupsDir(), 0o700); err != nil {
+		return "", "", err
+	}
 	base := time.Now().Format("20060102-150405")
 	id := base
 	for n := 2; ; n++ {
 		dir := filepath.Join(p.BackupsDir(), id)
-		err := os.MkdirAll(p.BackupsDir(), 0o700)
-		if err != nil {
-			return "", "", err
-		}
-		err = os.Mkdir(dir, 0o700)
+		err := os.Mkdir(dir, 0o700)
 		if err == nil {
 			return id, dir, nil
 		}

@@ -36,6 +36,7 @@ type Action struct {
 
 type Plan struct {
 	Actions []Action `json:"actions"`
+	Skipped []string `json:"skipped,omitempty"`
 }
 
 func (pl Plan) Conflicts() int {
@@ -55,18 +56,30 @@ func MakePlan(p paths.Paths, reg account.Registry, c Classifier) (Plan, error) {
 	}
 	pl := Plan{Actions: []Action{}}
 	items := c.SharedNames()
+	// adoptedFrom maps an item missing from core to the account copy an
+	// earlier account will move there, so later accounts are planned against
+	// that copy instead of adopting their own on top of it.
+	adoptedFrom := map[string]string{}
 	for _, a := range reg.Accounts {
 		if a.IsDefault {
 			continue
 		}
+		if info, err := os.Stat(a.ConfigDir); err != nil || !info.IsDir() {
+			pl.Skipped = append(pl.Skipped, fmt.Sprintf("%s: config dir %s does not exist", a.Name, a.ConfigDir))
+			continue
+		}
 		for _, item := range items {
-			act, err := planItem(p, a, item)
+			act, err := planItem(p, a, item, adoptedFrom[item])
 			if err != nil {
 				return Plan{}, err
 			}
-			if act != nil {
-				pl.Actions = append(pl.Actions, *act)
+			if act == nil {
+				continue
 			}
+			if act.Kind == Adopt {
+				adoptedFrom[item] = act.Path
+			}
+			pl.Actions = append(pl.Actions, *act)
 		}
 	}
 
@@ -80,12 +93,19 @@ func MakePlan(p paths.Paths, reg account.Registry, c Classifier) (Plan, error) {
 	return pl, nil
 }
 
-func planItem(p paths.Paths, a account.Account, item string) (*Action, error) {
+// planItem decides what to do with one shared entry of one account. When
+// pending is set, core does not exist yet but that path will be moved there
+// by an earlier action, so it stands in for core.
+func planItem(p paths.Paths, a account.Account, item, pending string) (*Action, error) {
 	core := filepath.Join(p.CoreDir(), item)
 	acct := filepath.Join(a.ConfigDir, item)
 	act := &Action{Account: a.Name, Item: item, Path: acct, Target: core}
 
-	coreInfo, coreErr := os.Stat(core)
+	coreSrc := core
+	if pending != "" {
+		coreSrc = pending
+	}
+	coreInfo, coreErr := os.Stat(coreSrc)
 	if coreErr != nil && !errors.Is(coreErr, os.ErrNotExist) {
 		return nil, coreErr
 	}
@@ -106,6 +126,9 @@ func planItem(p paths.Paths, a account.Account, item string) (*Action, error) {
 		if coreExists && sameTarget(acct, core) {
 			return nil, nil
 		}
+		if target, _ := os.Readlink(acct); pending != "" && target == core {
+			return nil, nil
+		}
 		act.Kind = Conflict
 		act.Detail = "symlink does not point at the shared copy"
 		return act, nil
@@ -123,7 +146,7 @@ func planItem(p paths.Paths, a account.Account, item string) (*Action, error) {
 	case item == "history.jsonl":
 		act.Kind = MergeJSONL
 	default:
-		same, err := sameFile(core, acct)
+		same, err := sameFile(coreSrc, acct)
 		if err != nil {
 			return nil, err
 		}

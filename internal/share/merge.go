@@ -50,43 +50,45 @@ func mergeJSONL(core, acct []byte) []byte {
 
 // mergeTree copies into dst every entry of src that dst lacks, recursing into
 // directories both sides have. Files present on both sides with different
-// content keep dst's version and are reported as conflicts. Added paths are
-// returned even when an error stops the walk, so callers can undo them.
-func mergeTree(src, dst string) (added, conflicts []string, err error) {
+// content keep dst's version and are reported as conflicts. onAdd is called
+// with each destination path before it is copied, so a copy that fails
+// halfway is still known to the caller.
+func mergeTree(src, dst string, onAdd func(added string) error) (conflicts []string, err error) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	for _, e := range entries {
 		s := filepath.Join(src, e.Name())
 		d := filepath.Join(dst, e.Name())
 		dInfo, dErr := os.Lstat(d)
 		if errors.Is(dErr, os.ErrNotExist) {
-			if err := copyTree(s, d); err != nil {
-				return added, conflicts, err
+			if err := onAdd(d); err != nil {
+				return conflicts, err
 			}
-			added = append(added, d)
+			if err := copyTree(s, d); err != nil {
+				return conflicts, err
+			}
 			continue
 		}
 		if dErr != nil {
-			return added, conflicts, dErr
+			return conflicts, dErr
 		}
 		sInfo, err := os.Lstat(s)
 		if err != nil {
-			return added, conflicts, err
+			return conflicts, err
 		}
 		switch {
 		case sInfo.IsDir() && dInfo.IsDir():
-			a, c, err := mergeTree(s, d)
-			added = append(added, a...)
+			c, err := mergeTree(s, d, onAdd)
 			conflicts = append(conflicts, c...)
 			if err != nil {
-				return added, conflicts, err
+				return conflicts, err
 			}
 		case sInfo.Mode().IsRegular() && dInfo.Mode().IsRegular():
 			same, err := sameFile(s, d)
 			if err != nil {
-				return added, conflicts, err
+				return conflicts, err
 			}
 			if !same {
 				conflicts = append(conflicts, d)
@@ -101,7 +103,7 @@ func mergeTree(src, dst string) (added, conflicts []string, err error) {
 			conflicts = append(conflicts, d)
 		}
 	}
-	return added, conflicts, nil
+	return conflicts, nil
 }
 
 // copyTree copies src to dst, keeping permission bits and copying symlinks as

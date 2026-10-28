@@ -37,8 +37,7 @@ func snapshot(t *testing.T, f fixture) map[string]string {
 			case info.IsDir():
 				snap[path] = "dir"
 			default:
-				b, _ := os.ReadFile(path)
-				snap[path] = "file:" + string(b)
+				snap[path] = "file:" + readForSnap(path)
 			}
 			return nil
 		})
@@ -47,10 +46,24 @@ func snapshot(t *testing.T, f fixture) map[string]string {
 		}
 	}
 	for _, j := range []string{f.p.DefaultClaudeJSON(), filepath.Join(f.acct, ".claude.json")} {
-		b, _ := os.ReadFile(j)
-		snap[j] = "file:" + string(b)
+		snap[j] = "file:" + readForSnap(j)
 	}
 	return snap
+}
+
+// readForSnap returns file content; .claude.json is compared by meaning
+// because roster rewrites it when it changes the mcpServers key.
+func readForSnap(path string) string {
+	b, _ := os.ReadFile(path)
+	if filepath.Base(path) != ".claude.json" {
+		return string(b)
+	}
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return string(b)
+	}
+	canon, _ := json.Marshal(v)
+	return string(canon)
 }
 
 func diffSnap(t *testing.T, before, after map[string]string) {
@@ -150,7 +163,7 @@ func TestApplyThenRollbackRestoresBytes(t *testing.T) {
 		t.Errorf("skills/x/SKILL.md conflict not recorded: %+v", m.Steps)
 	}
 
-	if err := share.Rollback(f.p, m.ID); err != nil {
+	if _, err := share.Rollback(f.p, m.ID, share.RollbackOptions{Running: noClaude}); err != nil {
 		t.Fatal(err)
 	}
 	diffSnap(t, before, snapshot(t, f))
@@ -162,10 +175,10 @@ func TestRollbackTwiceFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := share.Rollback(f.p, m.ID); err != nil {
+	if _, err := share.Rollback(f.p, m.ID, share.RollbackOptions{Running: noClaude}); err != nil {
 		t.Fatal(err)
 	}
-	if err := share.Rollback(f.p, m.ID); err == nil {
+	if _, err := share.Rollback(f.p, m.ID, share.RollbackOptions{Running: noClaude}); err == nil {
 		t.Error("second rollback should fail")
 	}
 }
@@ -194,14 +207,16 @@ func TestRollbackAfterPartialFailure(t *testing.T) {
 	if err := os.Chmod(f.p.CoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if len(m.Steps) != 1 || m.Steps[0].Action.Item != "file-history" {
+	// The failing step is logged as intent before it mutates anything, so the
+	// manifest may hold it too; what matters is that rollback restores everything.
+	if len(m.Steps) == 0 || m.Steps[0].Action.Item != "file-history" {
 		t.Fatalf("manifest steps = %+v", m.Steps)
 	}
 	ids, err := share.ListBackups(f.p)
 	if err != nil || len(ids) != 1 || ids[0] != m.ID {
 		t.Fatalf("ListBackups = %v, %v (manifest %s)", ids, err, m.ID)
 	}
-	if err := share.Rollback(f.p, m.ID); err != nil {
+	if _, err := share.Rollback(f.p, m.ID, share.RollbackOptions{Running: noClaude}); err != nil {
 		t.Fatal(err)
 	}
 	diffSnap(t, before, snapshot(t, f))
