@@ -5,12 +5,13 @@ import (
 	"path/filepath"
 
 	"github.com/zahT3/roster/internal/cli"
+	"github.com/zahT3/roster/internal/shim"
 )
 
 func main() {
 	if filepath.Base(os.Args[0]) == "claude" {
-		// Shim mode is wired up in a later step.
-		os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))
+		shim.Run(os.Args)
+		return
 	}
 	os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))
 }
