@@ -23,6 +23,8 @@ func statusSetup(t *testing.T) paths.Paths {
 	return p
 }
 
+func setStdin(input string) func() { return cli.SetStdin(strings.NewReader(input)) }
+
 func statusline(t *testing.T, input string) (int, string) {
 	t.Helper()
 	restore := cli.SetStdin(strings.NewReader(input))

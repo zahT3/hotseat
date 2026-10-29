@@ -22,6 +22,7 @@ var commands = map[string]command{
 	"add":        cmdAdd,
 	"shim":       cmdShim,
 	"statusline": cmdStatusline,
+	"hook":       cmdHook,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {

@@ -110,9 +110,3 @@ func runChain(p paths.Paths, raw []byte) string {
 	line, _, _ := bufio.NewReader(bytes.NewReader(out)).ReadLine()
 	return strings.TrimSpace(string(line))
 }
-
-// cmdStatuslineInstall is filled in with the settings.json editor.
-func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "usage: hotseat statusline [install|uninstall]")
-	return 1
-}
