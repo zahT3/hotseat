@@ -26,7 +26,7 @@ func SyncSettings(src, dst, srcAcct, dstAcct, backup string) error {
 	}
 	for _, name := range mirrored {
 		s, d := filepath.Join(src, name), filepath.Join(dst, name)
-		if !exists(s) {
+		if !exists(s) || treesEqual(s, d) {
 			continue
 		}
 		if exists(d) {
@@ -38,7 +38,7 @@ func SyncSettings(src, dst, srcAcct, dstAcct, backup string) error {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
-	return unionCopy(filepath.Join(src, "scratch-workspaces"), filepath.Join(dst, "scratch-workspaces"))
+	return syncScratch(filepath.Join(src, "scratch-workspaces"), filepath.Join(dst, "scratch-workspaces"), backup)
 }
 
 type object = map[string]json.RawMessage
@@ -109,6 +109,9 @@ func remap(srcRaw, dstRaw json.RawMessage, srcAcct, dstAcct string) (json.RawMes
 		if err := json.Unmarshal(dstRaw, &d); err != nil {
 			return nil, err
 		}
+	}
+	if d == nil { // the stored value was null
+		d = object{}
 	}
 	if v, ok := s[srcAcct]; ok {
 		d[dstAcct] = v
@@ -207,9 +210,11 @@ func syncPresets(src, dst, srcAcct, dstAcct, backup string) error {
 	return writeObject(filepath.Join(dst, name), out, backup)
 }
 
-// unionCopy copies every file under src that dst lacks; existing files in
-// dst are never overwritten.
-func unionCopy(src, dst string) error {
+// syncScratch copies scratch work from src into dst: missing files are
+// added, and a file edited more recently in src replaces dst's copy, which
+// goes to backup. Sessions continue on another account, so their working
+// files have to follow.
+func syncScratch(src, dst, backup string) error {
 	if !exists(src) {
 		return nil
 	}
@@ -226,8 +231,58 @@ func unionCopy(src, dst string) error {
 			return os.MkdirAll(target, 0o700)
 		}
 		if exists(target) {
-			return nil
+			if same, err := sameFile(path, target); err != nil || same {
+				return err
+			}
+			si, err1 := os.Lstat(path)
+			di, err2 := os.Lstat(target)
+			if err1 != nil || err2 != nil || !si.ModTime().After(di.ModTime()) {
+				return nil
+			}
+			if err := moveToBackup(backup, "scratch", target); err != nil {
+				return err
+			}
 		}
 		return copyTree(path, target)
 	})
+}
+
+func sameFile(a, b string) (bool, error) {
+	ba, err := os.ReadFile(a)
+	if err != nil {
+		return false, err
+	}
+	bb, err := os.ReadFile(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(ba, bb), nil
+}
+
+// treesEqual reports whether two paths hold the same files with the same
+// bytes (used to skip re-copying unchanged extensions on every switch).
+func treesEqual(a, b string) bool {
+	ai, err1 := os.Lstat(a)
+	bi, err2 := os.Lstat(b)
+	if err1 != nil || err2 != nil || ai.IsDir() != bi.IsDir() {
+		return false
+	}
+	if !ai.IsDir() {
+		if ai.Size() != bi.Size() {
+			return false
+		}
+		same, err := sameFile(a, b)
+		return err == nil && same
+	}
+	ae, err1 := os.ReadDir(a)
+	be, err2 := os.ReadDir(b)
+	if err1 != nil || err2 != nil || len(ae) != len(be) {
+		return false
+	}
+	for i := range ae {
+		if ae[i].Name() != be[i].Name() || !treesEqual(filepath.Join(a, ae[i].Name()), filepath.Join(b, be[i].Name())) {
+			return false
+		}
+	}
+	return true
 }

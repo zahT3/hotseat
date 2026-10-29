@@ -56,8 +56,14 @@ func CurrentSession(dataDir, acct, org string) (string, bool) {
 
 // Switch makes `to` the account Claude Desktop runs as: quit Desktop, carry
 // the session list and settings over, swap the data dirs, reopen (with the
-// given session when Resume is set).
-func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts SwitchOptions) (SwitchResult, error) {
+// given session when Resume is set). If anything fails after Desktop was
+// quit, Desktop is reopened on the account it had.
+func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts SwitchOptions) (res SwitchResult, err error) {
+	unlock, err := Lock(p)
+	if err != nil {
+		return SwitchResult{}, err
+	}
+	defer unlock()
 	if _, err := Recover(p); err != nil {
 		return SwitchResult{}, err
 	}
@@ -68,7 +74,7 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 	if s.Active == "" {
 		return SwitchResult{}, errors.New("Claude Desktop is not managed yet; run: hotseat desktop adopt")
 	}
-	res := SwitchResult{From: s.Active, To: to}
+	res = SwitchResult{From: s.Active, To: to}
 	from, ok := reg.Find(s.Active)
 	if !ok {
 		return res, fmt.Errorf("active Desktop account %q is not registered", s.Active)
@@ -77,21 +83,38 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 	if !ok {
 		return res, fmt.Errorf("unknown account %q", to)
 	}
+	if target.OrgUUID == "" || from.OrgUUID == "" {
+		return res, errors.New("an account has no organization ID in the registry; run hotseat init")
+	}
 	if to == s.Active && opts.Resume == "" {
+		if err := checkIdentity(p, &s, from); err != nil {
+			return res, err
+		}
 		res.Noop = true
 		return res, nil
 	}
-	if to != s.Active && !dirExists(p.DesktopProfileDir(to)) {
-		return res, fmt.Errorf("no Desktop data for %s yet; run: hotseat desktop add %s", to, to)
+	if to != s.Active {
+		if !dirExists(p.DesktopProfileDir(to)) {
+			return res, fmt.Errorf("no Desktop data for %s yet; run: hotseat desktop add %s", to, to)
+		}
+		if err := checkParked(p, s, target); err != nil {
+			return res, err
+		}
 	}
 
 	resume := opts.Resume
 	if resume == "current" {
 		resume, _ = CurrentSession(p.DesktopDataDir(), from.AccountUUID, from.OrgUUID)
 	}
-	if err := QuitAndWait(d, p.Home, opts.Timeout); err != nil {
+	wasRunning, err := quitAndWait(d, p.Home, opts.Timeout)
+	if err != nil {
 		return res, err
 	}
+	defer func() {
+		if err != nil && wasRunning {
+			_ = d.Launch()
+		}
+	}()
 	if err := checkIdentity(p, &s, from); err != nil {
 		return res, err
 	}
@@ -112,10 +135,6 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 		if err := Swap(p, s.Active, to); err != nil {
 			return res, err
 		}
-		s.Active = to
-		if err := SaveState(p, s); err != nil {
-			return res, err
-		}
 	}
 
 	if opts.NoLaunch {
@@ -126,6 +145,23 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 		return res, d.OpenURL("claude://resume?session=" + resume)
 	}
 	return res, d.Launch()
+}
+
+// checkParked refuses to bring in a parked profile that is logged in to a
+// different account than the one it is filed under.
+func checkParked(p paths.Paths, s State, target account.Account) error {
+	actual, err := AccountUUID(p.DesktopProfileDir(target.Name))
+	if err != nil {
+		return err
+	}
+	want := s.Profiles[target.Name]
+	if want == "" {
+		want = target.AccountUUID
+	}
+	if actual != "" && actual != want {
+		return fmt.Errorf("the Desktop data parked for %s is logged in to %q, not %q; not switching", target.Name, actual, want)
+	}
+	return nil
 }
 
 // checkIdentity refuses to park the data at the real path under the wrong
@@ -165,6 +201,9 @@ func AddProfile(p paths.Paths, name string) error {
 	}
 	if _, ok := s.Profiles[name]; ok || name == s.Active {
 		return fmt.Errorf("%s already has Desktop data", name)
+	}
+	if exists(p.DesktopProfileDir(name)) {
+		return fmt.Errorf("%s already exists; adopt it with hotseat desktop adopt %s <dir> or move it away first", p.DesktopProfileDir(name), name)
 	}
 	if err := os.MkdirAll(p.DesktopProfileDir(name), 0o700); err != nil {
 		return err

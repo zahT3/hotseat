@@ -73,6 +73,8 @@ A switch quits Desktop (it waits; it never force-kills), carries Desktop's own w
 
 Without `--yes`, `hotseat use` leaves a running Desktop alone and tells you; a closed Desktop is switched quietly and opens as the new account next time. When a Desktop session hits a usage limit, the dialog offers to switch Desktop to another account and continue that session there.
 
+Don't use Log out inside Claude Desktop to change accounts: it signs that account out on Anthropic's side, and its Hotseat profile has to log in again. Switch with Hotseat instead.
+
 Hotseat does not use symlinks or `--user-data-dir` for this: symlinked data breaks Cowork's file sharing and recent Desktop versions refuse to save sessions into a symlinked folder, and `--user-data-dir` is lost whenever Desktop relaunches itself after an update.
 
 MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.

@@ -192,3 +192,26 @@ func TestDesktopRecoverCommand(t *testing.T) {
 		t.Errorf("exit %d out %q", code, out)
 	}
 }
+
+func TestDesktopAddRefusesWhileRunningWithoutYes(t *testing.T) {
+	p := desktopSetup(t)
+	d := &fakeDesktop{running: desktopApp, stopOnQuit: true}
+	defer cli.SetDesktopDriver(d)()
+	code, out, stderr := run(t, "desktop", "add", "claude2")
+	if code == 0 || d.quits != 0 || !strings.Contains(out+stderr, "--yes") {
+		t.Errorf("exit %d quits %d out %q err %q", code, d.quits, out, stderr)
+	}
+	if s, _ := desktop.LoadState(p); s.Active != "claude" {
+		t.Errorf("state changed: %+v", s)
+	}
+}
+
+func TestDesktopStatusShowsRunningAndPendingJournal(t *testing.T) {
+	p := desktopSetup(t)
+	defer cli.SetDesktopDriver(&fakeDesktop{running: desktopApp})()
+	testutil.WriteFile(t, p.DesktopJournal(), `{"from":"claude","to":"claude2","step":"parked"}`)
+	_, out, _ := run(t, "desktop", "status")
+	if !strings.Contains(out, "running") || !strings.Contains(out, "hotseat desktop recover") {
+		t.Errorf("out %q", out)
+	}
+}

@@ -40,7 +40,11 @@ func Offer(p paths.Paths, reg account.Registry, r Request, run Runner) error {
 		resets = time.Unix(r.ResetsAt, 0).Local().Format("Jan 2 15:04")
 	}
 	if r.To == "" {
-		return run.Notify(r.From+" hit its usage limit", "Resets "+resets+". No other account has quota left.")
+		msg := "Resets " + resets + ". No other account has quota left."
+		if r.Desktop {
+			msg = "Resets " + resets + ". No other account with Claude Desktop data has quota left; add one with: hotseat desktop add <account>"
+		}
+		return run.Notify(r.From+" hit its usage limit", msg)
 	}
 	to, ok := reg.Find(r.To)
 	if !ok {
@@ -66,7 +70,13 @@ func Offer(p paths.Paths, reg account.Registry, r Request, run Runner) error {
 		return err
 	}
 	if r.Desktop {
-		return run.SwitchDesktop(p, reg, r.To, r.SessionID)
+		// This runs detached from any terminal: tell the user when Desktop
+		// could not be switched instead of leaving it closed and silent.
+		if err := run.SwitchDesktop(p, reg, r.To, r.SessionID); err != nil {
+			_ = run.Notify("Hotseat could not switch Claude Desktop to "+r.To, err.Error())
+			return err
+		}
+		return nil
 	}
 	return run.OpenTerminal(ResumeCommand(to, r.Cwd, r.SessionID))
 }

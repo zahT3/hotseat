@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/zahT3/hotseat/internal/paths"
 )
@@ -69,4 +71,24 @@ func ProfileDir(p paths.Paths, s State, name string) string {
 func exists(path string) bool {
 	_, err := os.Lstat(path)
 	return err == nil
+}
+
+// Lock serialises everything that moves Desktop data (switch, recover,
+// adopt), across processes: a limit dialog and `hotseat use` can race.
+func Lock(p paths.Paths) (func(), error) {
+	if err := os.MkdirAll(p.DesktopStoreDir(), 0o700); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(filepath.Join(p.DesktopStoreDir(), ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }

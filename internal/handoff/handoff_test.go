@@ -1,6 +1,7 @@
 package handoff_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ type fakeRunner struct {
 	buttons          []string
 	opened, notified []string
 	desktopSwitched  []string
+	switchErr        error
 }
 
 func (f *fakeRunner) Dialog(text string, buttons []string, def string) (string, error) {
@@ -35,7 +37,7 @@ func (f *fakeRunner) OpenTerminal(cmd string) error {
 }
 func (f *fakeRunner) SwitchDesktop(p paths.Paths, reg account.Registry, to, session string) error {
 	f.desktopSwitched = append(f.desktopSwitched, to+" "+session)
-	return nil
+	return f.switchErr
 }
 
 func setup(t *testing.T) (paths.Paths, account.Registry) {
@@ -166,5 +168,27 @@ func TestOfferDesktopSwitchRunsSwitch(t *testing.T) {
 	}
 	if !strings.Contains(f.dialogText, "Desktop") {
 		t.Errorf("dialog text: %s", f.dialogText)
+	}
+}
+
+func TestOfferDesktopSwitchFailureNotifies(t *testing.T) {
+	p, reg := setup(t)
+	r := req
+	r.Desktop = true
+	f := &fakeRunner{press: "Switch Desktop to claude", switchErr: errors.New("Claude Desktop is still running")}
+	handoff.Offer(p, reg, r, f)
+	if len(f.notified) != 1 || !strings.Contains(f.notified[0], "still running") {
+		t.Errorf("notified %v", f.notified)
+	}
+}
+
+func TestOfferDesktopNoCandidateSuggestsAdd(t *testing.T) {
+	p, reg := setup(t)
+	r := req
+	r.Desktop, r.To = true, ""
+	f := &fakeRunner{}
+	handoff.Offer(p, reg, r, f)
+	if len(f.notified) != 1 || !strings.Contains(f.notified[0], "hotseat desktop add") {
+		t.Errorf("notified %v", f.notified)
 	}
 }

@@ -12,8 +12,9 @@ import (
 const bundleID = "com.anthropic.claudefordesktop"
 
 type Proc struct {
-	PID int
-	Exe string
+	PID   int
+	Exe   string
+	Paths []string
 }
 
 // Driver is everything Hotseat does to the real Claude Desktop, so tests can
@@ -35,7 +36,15 @@ func Running(procs []Proc, home string) []Proc {
 	var out []Proc
 	for _, p := range procs {
 		inBundle := strings.Contains(p.Exe, "/Claude.app/Contents/") && !strings.HasSuffix(p.Exe, "/Helpers/chrome-native-host")
-		if inBundle || strings.HasPrefix(p.Exe, dataDir) {
+		inData := strings.HasPrefix(p.Exe, dataDir)
+		// Claude Code rewrites its process title, so its real executable
+		// and working directory come from lsof.
+		for _, path := range p.Paths {
+			if strings.HasPrefix(path, dataDir) {
+				inData = true
+			}
+		}
+		if inBundle || inData {
 			out = append(out, p)
 		}
 	}
@@ -45,13 +54,23 @@ func Running(procs []Proc, home string) []Proc {
 // QuitAndWait asks Desktop to quit and waits for every process of it to
 // exit. It never force-kills: a running Code session may be mid-task.
 func QuitAndWait(d Driver, home string, timeout time.Duration) error {
+	_, err := quitAndWait(d, home, timeout)
+	return err
+}
+
+// quitAndWait is QuitAndWait that also reports whether Desktop was running.
+func quitAndWait(d Driver, home string, timeout time.Duration) (bool, error) {
 	procs, err := d.Procs()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(Running(procs, home)) == 0 {
-		return nil
+		return false, nil
 	}
+	return true, waitQuit(d, home, timeout)
+}
+
+func waitQuit(d Driver, home string, timeout time.Duration) error {
 	if err := d.Quit(); err != nil {
 		return err
 	}
@@ -97,7 +116,38 @@ func (MacDriver) Procs() ([]Proc, error) {
 		}
 		procs = append(procs, Proc{PID: pid, Exe: strings.TrimSpace(exe)})
 	}
+	paths, err := openPaths()
+	if err != nil {
+		return nil, err
+	}
+	for i := range procs {
+		procs[i].Paths = paths[procs[i].PID]
+	}
 	return procs, nil
+}
+
+// openPaths maps pid to its executable and working directory as lsof sees
+// them (about half a second for every process on a typical Mac).
+func openPaths() (map[int][]string, error) {
+	out, err := exec.Command("lsof", "-nP", "-w", "-d", "cwd,txt", "-Fpn").Output()
+	var exitErr *exec.ExitError
+	if err != nil && !(errors.As(err, &exitErr) && len(out) > 0) {
+		return nil, err
+	}
+	m := map[int][]string{}
+	pid := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 2 {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			pid, _ = strconv.Atoi(line[1:])
+		case 'n':
+			m[pid] = append(m[pid], line[1:])
+		}
+	}
+	return m, nil
 }
 
 func (MacDriver) Quit() error {

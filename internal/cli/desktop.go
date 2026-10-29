@@ -31,9 +31,14 @@ func cmdDesktop(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	case "switch":
 		return cmdDesktopSwitch(p, args[1:], stdout, stderr)
 	case "add":
-		return cmdDesktopAdd(p, pos[1:], stdout, stderr)
+		return cmdDesktopAdd(p, pos[1:], hasFlag(args, "--yes"), stdout, stderr)
 	case "recover":
+		unlock, err := desktop.Lock(p)
+		if err != nil {
+			return fail(stderr, err)
+		}
 		msg, err := desktop.Recover(p)
+		unlock()
 		if err != nil {
 			return fail(stderr, err)
 		}
@@ -116,9 +121,20 @@ func cmdDesktopStatus(p paths.Paths, args []string, stdout, stderr io.Writer) in
 		}
 		return code
 	}
+	if procs, err := desktopDriver.Procs(); err == nil {
+		state := "not running"
+		if len(desktop.Running(procs, p.Home)) > 0 {
+			state = "running"
+		}
+		fmt.Fprintf(stdout, "Claude Desktop is %s\n", state)
+	}
+	if dirExists(p.DesktopStoreDir()) && fileExists(p.DesktopJournal()) {
+		fmt.Fprintln(stdout, "an interrupted switch is pending; run: hotseat desktop recover")
+		code = 1
+	}
 	if len(list) == 0 {
 		fmt.Fprintln(stdout, "Claude Desktop is not managed yet; run: hotseat desktop adopt")
-		return 0
+		return code
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 2, 2, ' ', 0)
 	for _, ps := range list {
@@ -161,6 +177,11 @@ func accountByUUID(reg account.Registry, uuid string) (account.Account, bool) {
 // arguments the data at the real path, or `<account> <dir>` to park a data
 // dir that was logged in elsewhere (e.g. with --user-data-dir).
 func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	unlock, err := desktop.Lock(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	defer unlock()
 	reg, err := account.LoadRegistry(p)
 	if err != nil {
 		return fail(stderr, err)
@@ -280,10 +301,22 @@ func switchDesktop(p paths.Paths, to, resume string, jsonOut bool, stdout, stder
 	return 0
 }
 
-func cmdDesktopAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+func cmdDesktopAdd(p paths.Paths, args []string, yes bool, stdout, stderr io.Writer) int {
+	var pos []string
+	for _, a := range args {
+		if a != "--yes" {
+			pos = append(pos, a)
+		}
+	}
+	args = pos
 	if len(args) != 1 {
-		fmt.Fprintln(stderr, "usage: hotseat desktop add <account>")
+		fmt.Fprintln(stderr, "usage: hotseat desktop add <account> [--yes]")
 		return 1
+	}
+	if !yes {
+		if err := desktopIdle(p); err != nil {
+			return fail(stderr, fmt.Errorf("%v, or re-run with --yes to let Hotseat quit it", err))
+		}
 	}
 	reg, err := account.LoadRegistry(p)
 	if err != nil {

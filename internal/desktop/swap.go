@@ -67,7 +67,24 @@ func Swap(p paths.Paths, from, to string) error {
 	if err := os.Rename(target, active); err != nil {
 		return err
 	}
+	// Record the new active account before dropping the journal, so no
+	// failure from here on can leave state pointing at the old account.
+	if err := setActive(p, to); err != nil {
+		return err
+	}
+	if err := hook("cleanup"); err != nil {
+		return err
+	}
 	return os.Remove(p.DesktopJournal())
+}
+
+func setActive(p paths.Paths, name string) error {
+	s, err := LoadState(p)
+	if err != nil {
+		return err
+	}
+	s.Active = name
+	return SaveState(p, s)
 }
 
 // Recover finishes or undoes a swap that was interrupted, and says what it
@@ -88,14 +105,23 @@ func Recover(p paths.Paths) (string, error) {
 	switch {
 	case dirExists(active) && !exists(parked):
 		// The first rename never happened.
+		if err := setActive(p, j.From); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("the switch to %s had not started; nothing changed", j.To), os.Remove(p.DesktopJournal())
 	case !exists(active) && dirExists(target):
 		if err := os.Rename(target, active); err != nil {
 			return "", err
 		}
+		if err := setActive(p, j.To); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("finished switching Desktop from %s to %s", j.From, j.To), os.Remove(p.DesktopJournal())
 	case dirExists(active) && exists(parked) && !exists(target):
 		// Both renames happened; only the journal cleanup was missed.
+		if err := setActive(p, j.To); err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("the switch to %s had completed", j.To), os.Remove(p.DesktopJournal())
 	default:
 		return "", fmt.Errorf("cannot tell how far the switch from %s to %s got: real path present=%v, %s parked=%v, %s parked=%v; fix by hand, then delete %s",

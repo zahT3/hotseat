@@ -63,7 +63,21 @@ func useDesktop(p paths.Paths, name string, yes bool, out map[string]any, text *
 		fail(stderr, err)
 		return 1
 	}
-	if s.Active == "" || s.Active == name {
+	if s.Active == "" {
+		return 0
+	}
+	if s.Active == name {
+		// Already the Desktop account on record; make sure the data at the
+		// real path still agrees before saying nothing.
+		reg, err := account.LoadRegistry(p)
+		if err != nil {
+			fail(stderr, err)
+			return 1
+		}
+		if _, err := desktop.Switch(p, reg, desktopDriver, name, desktop.SwitchOptions{Timeout: desktopQuitTimeout}); err != nil {
+			fail(stderr, err)
+			return 1
+		}
 		return 0
 	}
 	if _, ok := s.Profiles[name]; !ok {

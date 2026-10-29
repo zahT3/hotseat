@@ -81,3 +81,13 @@ func TestUseDesktopNotRunningSwitchesWithoutLaunch(t *testing.T) {
 		t.Errorf("desktop %q opened %d urls %v", activeDesktop(t, p), d.opened, d.urls)
 	}
 }
+
+func TestUseReportsDesktopIdentityDrift(t *testing.T) {
+	p := useSetup(t)
+	writeDesktopDir(t, p.DesktopDataDir(), "b2")
+	defer cli.SetDesktopDriver(&fakeDesktop{})()
+	code, out, stderr := run(t, "use", "claude")
+	if code != 1 || !strings.Contains(out+stderr, "b2") {
+		t.Errorf("exit %d out %q err %q", code, out, stderr)
+	}
+}
