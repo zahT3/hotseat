@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
 	"github.com/zahT3/hotseat/internal/desktop"
@@ -27,6 +28,19 @@ func cmdDesktop(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return cmdDesktopStatus(p, args, stdout, stderr)
 	case "adopt":
 		return cmdDesktopAdopt(p, pos[1:], stdout, stderr)
+	case "switch":
+		return cmdDesktopSwitch(p, args[1:], stdout, stderr)
+	case "add":
+		return cmdDesktopAdd(p, pos[1:], stdout, stderr)
+	case "recover":
+		msg, err := desktop.Recover(p)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if msg == "" {
+			msg = "nothing to recover"
+		}
+		return report(stdout, stderr, hasFlag(args, "--json"), map[string]string{"result": msg}, msg)
 	default:
 		fmt.Fprintf(stderr, "hotseat: unknown desktop command %q\n", pos[0])
 		return 1
@@ -214,4 +228,76 @@ func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintln(stderr, "usage: hotseat desktop adopt [<account> <data-dir>]")
 		return 1
 	}
+}
+
+const desktopQuitTimeout = 20 * time.Second
+
+func cmdDesktopSwitch(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	var to, resume string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--resume" && i+1 < len(args):
+			resume = args[i+1]
+			i++
+		case args[i] == "--json":
+		case to == "":
+			to = args[i]
+		default:
+			fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>]")
+			return 1
+		}
+	}
+	if to == "" {
+		fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>]")
+		return 1
+	}
+	return switchDesktop(p, to, resume, hasFlag(args, "--json"), stdout, stderr)
+}
+
+func switchDesktop(p paths.Paths, to, resume string, jsonOut bool, stdout, stderr io.Writer) int {
+	reg, err := account.LoadRegistry(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	res, err := desktop.Switch(p, reg, desktopDriver, to, desktop.SwitchOptions{Resume: resume, Timeout: desktopQuitTimeout})
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if jsonOut {
+		return writeJSON(stdout, stderr, res)
+	}
+	if res.Noop {
+		fmt.Fprintf(stdout, "Claude Desktop already runs as %s\n", to)
+		return 0
+	}
+	if res.From != res.To {
+		fmt.Fprintf(stdout, "Claude Desktop: %s -> %s (%d sessions added, %d updated to the shared list)\n",
+			res.From, res.To, res.Sessions.Copied, res.Sessions.Updated)
+	}
+	if res.Resumed != "" {
+		fmt.Fprintf(stdout, "reopening session %s\n", res.Resumed)
+	}
+	return 0
+}
+
+func cmdDesktopAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "usage: hotseat desktop add <account>")
+		return 1
+	}
+	reg, err := account.LoadRegistry(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	if _, ok := reg.Find(args[0]); !ok {
+		return fail(stderr, fmt.Errorf("unknown account %q", args[0]))
+	}
+	if err := desktop.AddProfile(p, args[0]); err != nil {
+		return fail(stderr, err)
+	}
+	if rc := switchDesktop(p, args[0], "", false, io.Discard, stderr); rc != 0 {
+		return rc
+	}
+	fmt.Fprintf(stdout, "Claude Desktop opened with an empty profile for %s: log in to that account once; Hotseat checks it on the next switch\n", args[0])
+	return 0
 }

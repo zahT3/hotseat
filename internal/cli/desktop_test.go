@@ -150,3 +150,45 @@ func TestAdoptDirRefusedWhileDesktopRuns(t *testing.T) {
 		t.Errorf("exit %d stderr %q", code, stderr)
 	}
 }
+
+func TestDesktopAddCreatesEmptyProfileAndLaunches(t *testing.T) {
+	p := desktopSetup(t)
+	d := &fakeDesktop{}
+	defer cli.SetDesktopDriver(d)()
+	code, out, stderr := run(t, "desktop", "add", "claude2")
+	if code != 0 {
+		t.Fatalf("add: %s", stderr)
+	}
+	s, _ := desktop.LoadState(p)
+	if s.Active != "claude2" || d.opened != 1 || !strings.Contains(out, "log in") {
+		t.Errorf("state %+v opened %d out %q", s, d.opened, out)
+	}
+	if id, _ := desktop.AccountUUID(p.DesktopProfileDir("claude")); id != "a1" {
+		t.Errorf("claude's data not parked: %q", id)
+	}
+}
+
+func TestDesktopSwitchCommand(t *testing.T) {
+	p := desktopSetup(t)
+	writeDesktopDir(t, p.DesktopProfileDir("claude2"), "b2")
+	s, _ := desktop.LoadState(p)
+	s.Profiles["claude2"] = "b2"
+	desktop.SaveState(p, s)
+	d := &fakeDesktop{running: desktopApp, stopOnQuit: true}
+	defer cli.SetDesktopDriver(d)()
+	code, _, stderr := run(t, "desktop", "switch", "claude2", "--resume", "11111111-2222-4333-8444-555555555555")
+	if code != 0 {
+		t.Fatalf("switch: %s", stderr)
+	}
+	if len(d.urls) != 1 || !strings.HasSuffix(d.urls[0], "11111111-2222-4333-8444-555555555555") {
+		t.Errorf("urls %v", d.urls)
+	}
+}
+
+func TestDesktopRecoverCommand(t *testing.T) {
+	desktopSetup(t)
+	defer cli.SetDesktopDriver(&fakeDesktop{})()
+	if code, out, _ := run(t, "desktop", "recover"); code != 0 || !strings.Contains(out, "nothing") {
+		t.Errorf("exit %d out %q", code, out)
+	}
+}

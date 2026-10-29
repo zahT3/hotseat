@@ -1,0 +1,169 @@
+package desktop
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+)
+
+type SwitchOptions struct {
+	// Resume is "" (just open Desktop), "current" (the session focused last
+	// on the outgoing account) or a Claude Code session UUID.
+	Resume  string
+	Timeout time.Duration
+}
+
+type SwitchResult struct {
+	From     string     `json:"from"`
+	To       string     `json:"to"`
+	Resumed  string     `json:"resumed,omitempty"`
+	Sessions SyncReport `json:"sessions"`
+	Backup   string     `json:"backup,omitempty"`
+	Noop     bool       `json:"noop,omitempty"`
+}
+
+// CurrentSession is the Code session focused most recently in an account's
+// Desktop list, as a Claude Code session ID.
+func CurrentSession(dataDir, acct, org string) (string, bool) {
+	files, _ := filepath.Glob(filepath.Join(sessionsRoot(dataDir), acct, org, "local_*.json"))
+	best, bestAt := "", int64(-1)
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var v struct {
+			CLISessionID  string `json:"cliSessionId"`
+			LastFocusedAt int64  `json:"lastFocusedAt"`
+		}
+		if json.Unmarshal(b, &v) != nil || v.CLISessionID == "" {
+			continue
+		}
+		if v.LastFocusedAt > bestAt {
+			best, bestAt = v.CLISessionID, v.LastFocusedAt
+		}
+	}
+	return best, best != ""
+}
+
+// Switch makes `to` the account Claude Desktop runs as: quit Desktop, carry
+// the session list and settings over, swap the data dirs, reopen (with the
+// given session when Resume is set).
+func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts SwitchOptions) (SwitchResult, error) {
+	if _, err := Recover(p); err != nil {
+		return SwitchResult{}, err
+	}
+	s, err := LoadState(p)
+	if err != nil {
+		return SwitchResult{}, err
+	}
+	if s.Active == "" {
+		return SwitchResult{}, errors.New("Claude Desktop is not managed yet; run: hotseat desktop adopt")
+	}
+	res := SwitchResult{From: s.Active, To: to}
+	from, ok := reg.Find(s.Active)
+	if !ok {
+		return res, fmt.Errorf("active Desktop account %q is not registered", s.Active)
+	}
+	target, ok := reg.Find(to)
+	if !ok {
+		return res, fmt.Errorf("unknown account %q", to)
+	}
+	if to == s.Active && opts.Resume == "" {
+		res.Noop = true
+		return res, nil
+	}
+	if to != s.Active && !dirExists(p.DesktopProfileDir(to)) {
+		return res, fmt.Errorf("no Desktop data for %s yet; run: hotseat desktop add %s", to, to)
+	}
+
+	resume := opts.Resume
+	if resume == "current" {
+		resume, _ = CurrentSession(p.DesktopDataDir(), from.AccountUUID, from.OrgUUID)
+	}
+	if err := QuitAndWait(d, p.Home, opts.Timeout); err != nil {
+		return res, err
+	}
+	if err := checkIdentity(p, &s, from); err != nil {
+		return res, err
+	}
+
+	if to != s.Active {
+		res.Backup = filepath.Join(p.BackupsDir(), "desktop-"+time.Now().Format("20060102-150405.000"))
+		transcripts, err := TranscriptIDs(filepath.Join(p.CoreDir(), "projects"))
+		if err != nil {
+			return res, err
+		}
+		res.Sessions, err = SyncSessions(p.DesktopDataDir(), p.DesktopProfileDir(to), target.AccountUUID, target.OrgUUID, transcripts, res.Backup)
+		if err != nil {
+			return res, fmt.Errorf("sync sessions: %w", err)
+		}
+		if err := SyncSettings(p.DesktopDataDir(), p.DesktopProfileDir(to), from.AccountUUID, target.AccountUUID, res.Backup); err != nil {
+			return res, fmt.Errorf("sync settings: %w", err)
+		}
+		if err := Swap(p, s.Active, to); err != nil {
+			return res, err
+		}
+		s.Active = to
+		if err := SaveState(p, s); err != nil {
+			return res, err
+		}
+	}
+
+	if resume != "" {
+		res.Resumed = resume
+		return res, d.OpenURL("claude://resume?session=" + resume)
+	}
+	return res, d.Launch()
+}
+
+// checkIdentity refuses to park the data at the real path under the wrong
+// name: it must still be logged in to the account Hotseat recorded (or, for
+// a profile that was empty when added, to the registered account).
+func checkIdentity(p paths.Paths, s *State, from account.Account) error {
+	actual, err := AccountUUID(p.DesktopDataDir())
+	if err != nil {
+		return err
+	}
+	if actual == "" {
+		return nil
+	}
+	recorded := s.Profiles[s.Active]
+	if recorded != "" && actual != recorded {
+		return fmt.Errorf("Claude Desktop is now logged in to %q, but Hotseat has it as %s (%s); log back in to %s or fix it with hotseat desktop status", actual, s.Active, recorded, s.Active)
+	}
+	if recorded == "" {
+		if actual != from.AccountUUID {
+			return fmt.Errorf("Claude Desktop was logged in to %q, not to %s (%s)", actual, from.Name, from.AccountUUID)
+		}
+		s.Profiles[s.Active] = actual
+		return SaveState(p, *s)
+	}
+	return nil
+}
+
+// AddProfile prepares an empty Desktop data dir for an account that has
+// never used Desktop here.
+func AddProfile(p paths.Paths, name string) error {
+	s, err := LoadState(p)
+	if err != nil {
+		return err
+	}
+	if s.Active == "" {
+		return errors.New("Claude Desktop is not managed yet; run: hotseat desktop adopt")
+	}
+	if _, ok := s.Profiles[name]; ok || name == s.Active {
+		return fmt.Errorf("%s already has Desktop data", name)
+	}
+	if err := os.MkdirAll(p.DesktopProfileDir(name), 0o700); err != nil {
+		return err
+	}
+	s.Profiles[name] = ""
+	return SaveState(p, s)
+}
