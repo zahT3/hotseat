@@ -13,14 +13,15 @@ const Version = "0.1.0"
 type command func(p paths.Paths, args []string, stdout, stderr io.Writer) int
 
 var commands = map[string]command{
-	"init":     cmdInit,
-	"accounts": cmdAccounts,
-	"use":      cmdUse,
-	"current":  cmdCurrent,
-	"share":    cmdShare,
-	"doctor":   cmdDoctor,
-	"add":      cmdAdd,
-	"shim":     cmdShim,
+	"init":       cmdInit,
+	"accounts":   cmdAccounts,
+	"use":        cmdUse,
+	"current":    cmdCurrent,
+	"share":      cmdShare,
+	"doctor":     cmdDoctor,
+	"add":        cmdAdd,
+	"shim":       cmdShim,
+	"statusline": cmdStatusline,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
