@@ -10,7 +10,7 @@ import (
 var ErrClaudeRunning = errors.New("claude is running")
 
 // RunningClaude lists pids of running Claude Code processes, which would race
-// with Roster on history.jsonl and .claude.json.
+// with Hotseat on history.jsonl and .claude.json.
 func RunningClaude() ([]int, error) {
 	out, err := exec.Command("pgrep", "-x", "claude").Output()
 	var exitErr *exec.ExitError

@@ -1,4 +1,4 @@
-// Package shim is what runs when roster is invoked as `claude`: it points
+// Package shim is what runs when hotseat is invoked as `claude`: it points
 // CLAUDE_CONFIG_DIR at the current account and execs the real claude. It must
 // never stop claude from starting; on any problem it starts claude unchanged.
 package shim
@@ -12,8 +12,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 const envKey = "CLAUDE_CONFIG_DIR"
@@ -33,7 +33,7 @@ func ResolveEnv(env []string, reg account.Registry, current string) ([]string, s
 	}
 	a, ok := reg.Find(current)
 	if !ok {
-		return env, fmt.Sprintf("roster: current account %q not found; starting claude unchanged", current)
+		return env, fmt.Sprintf("hotseat: current account %q not found; starting claude unchanged", current)
 	}
 	out := without(env, envKey)
 	// The default account must run with CLAUDE_CONFIG_DIR unset: the keychain
@@ -72,11 +72,11 @@ func Run(args []string) {
 	env := os.Environ()
 	warning := ""
 	if p, err := paths.FromEnv(); err != nil {
-		warning = fmt.Sprintf("roster: %v; starting claude unchanged", err)
+		warning = fmt.Sprintf("hotseat: %v; starting claude unchanged", err)
 	} else if reg, err := account.LoadRegistry(p); err != nil {
-		warning = fmt.Sprintf("roster: cannot read accounts (%v); starting claude unchanged", err)
+		warning = fmt.Sprintf("hotseat: cannot read accounts (%v); starting claude unchanged", err)
 	} else if cur, err := account.CurrentName(p); err != nil {
-		warning = fmt.Sprintf("roster: cannot read current account (%v); starting claude unchanged", err)
+		warning = fmt.Sprintf("hotseat: cannot read current account (%v); starting claude unchanged", err)
 	} else {
 		env, warning = ResolveEnv(env, reg, cur)
 	}
@@ -91,12 +91,12 @@ func Run(args []string) {
 	}
 	real, err := FindRealClaude(os.Getenv("PATH"), self, shimDir)
 	if err != nil {
-		fmt.Fprintln(stderr, "roster: real claude not found in PATH")
+		fmt.Fprintln(stderr, "hotseat: real claude not found in PATH")
 		exit(127)
 		return
 	}
 	if err := execFn(real, args, env); err != nil {
-		fmt.Fprintf(stderr, "roster: exec %s: %v\n", real, err)
+		fmt.Fprintf(stderr, "hotseat: exec %s: %v\n", real, err)
 		exit(126)
 	}
 }

@@ -3,25 +3,25 @@ package paths_test
 import (
 	"testing"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
-func TestFromEnvDefaultsRosterDir(t *testing.T) {
+func TestFromEnvDefaultsStateDir(t *testing.T) {
 	t.Setenv("HOME", "/tmp/h")
-	t.Setenv("ROSTER_HOME", "")
+	t.Setenv("HOTSEAT_HOME", "")
 	p, err := paths.FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 	checks := map[string][2]string{
-		"RosterDir":         {p.RosterDir, "/tmp/h/.config/roster"},
+		"StateDir":          {p.StateDir, "/tmp/h/.config/hotseat"},
 		"CoreDir":           {p.CoreDir(), "/tmp/h/.claude"},
 		"DefaultClaudeJSON": {p.DefaultClaudeJSON(), "/tmp/h/.claude.json"},
-		"RegistryFile":      {p.RegistryFile(), "/tmp/h/.config/roster/accounts.json"},
-		"CurrentFile":       {p.CurrentFile(), "/tmp/h/.config/roster/current"},
-		"OverridesFile":     {p.OverridesFile(), "/tmp/h/.config/roster/share-overrides.json"},
-		"BackupsDir":        {p.BackupsDir(), "/tmp/h/.config/roster/backups"},
-		"ShimDir":           {p.ShimDir(), "/tmp/h/.config/roster/bin"},
+		"RegistryFile":      {p.RegistryFile(), "/tmp/h/.config/hotseat/accounts.json"},
+		"CurrentFile":       {p.CurrentFile(), "/tmp/h/.config/hotseat/current"},
+		"OverridesFile":     {p.OverridesFile(), "/tmp/h/.config/hotseat/share-overrides.json"},
+		"BackupsDir":        {p.BackupsDir(), "/tmp/h/.config/hotseat/backups"},
+		"ShimDir":           {p.ShimDir(), "/tmp/h/.config/hotseat/bin"},
 		"Zshrc":             {p.Zshrc(), "/tmp/h/.zshrc"},
 	}
 	for name, c := range checks {
@@ -31,15 +31,15 @@ func TestFromEnvDefaultsRosterDir(t *testing.T) {
 	}
 }
 
-func TestFromEnvRosterHomeOverride(t *testing.T) {
+func TestFromEnvHotseatHomeOverride(t *testing.T) {
 	t.Setenv("HOME", "/tmp/h")
-	t.Setenv("ROSTER_HOME", "/tmp/r")
+	t.Setenv("HOTSEAT_HOME", "/tmp/r")
 	p, err := paths.FromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.RosterDir != "/tmp/r" {
-		t.Errorf("RosterDir = %q, want /tmp/r", p.RosterDir)
+	if p.StateDir != "/tmp/r" {
+		t.Errorf("StateDir = %q, want /tmp/r", p.StateDir)
 	}
 }
 

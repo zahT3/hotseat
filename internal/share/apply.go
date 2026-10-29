@@ -9,8 +9,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 type ApplyOptions struct {
@@ -101,7 +101,7 @@ func Apply(p paths.Paths, reg account.Registry, pl Plan, opts ApplyOptions) (Man
 			beforeStep(i)
 		}
 		if err := applyAction(p, reg, j, i, a); err != nil {
-			return j.m, fmt.Errorf("%s %s: %w (undo with: roster share rollback %s)", a.Account, a.Item, err, id)
+			return j.m, fmt.Errorf("%s %s: %w (undo with: hotseat share rollback %s)", a.Account, a.Item, err, id)
 		}
 	}
 	return j.m, nil

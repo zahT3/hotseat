@@ -9,17 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 const (
-	blockStart = "# >>> roster >>>"
-	blockEnd   = "# <<< roster <<<"
+	blockStart = "# >>> hotseat >>>"
+	blockEnd   = "# <<< hotseat <<<"
 )
 
 func cmdShim(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 1 || (args[0] != "install" && args[0] != "uninstall") {
-		fmt.Fprintln(stderr, "usage: roster shim install|uninstall")
+		fmt.Fprintln(stderr, "usage: hotseat shim install|uninstall")
 		return 1
 	}
 	if args[0] == "install" {
@@ -92,7 +92,7 @@ func shimUninstall(p paths.Paths) error {
 	return writeZshrc(p, content[:start]+content[end:])
 }
 
-// findBlock returns the byte range of the roster block including its
+// findBlock returns the byte range of the hotseat block including its
 // trailing newline.
 func findBlock(content string) (start, end int, ok bool) {
 	start = strings.Index(content, blockStart)

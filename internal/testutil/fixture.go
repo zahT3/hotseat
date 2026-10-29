@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
-// FakeHome points HOME and ROSTER_HOME at fresh temp dirs for the test.
+// FakeHome points HOME and HOTSEAT_HOME at fresh temp dirs for the test.
 func FakeHome(t *testing.T) paths.Paths {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("ROSTER_HOME", filepath.Join(home, ".config", "roster"))
+	t.Setenv("HOTSEAT_HOME", filepath.Join(home, ".config", "hotseat"))
 	p, err := paths.FromEnv()
 	if err != nil {
 		t.Fatal(err)

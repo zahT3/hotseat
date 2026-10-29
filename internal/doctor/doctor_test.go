@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/doctor"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/doctor"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 type fx struct {
@@ -36,11 +36,11 @@ func cleanSetup(t *testing.T) (fx, []string) {
 		{Name: "claude", ConfigDir: p.CoreDir(), IsDefault: true, AccountUUID: "a1", OrgUUID: "o1"},
 		{Name: "claude2", ConfigDir: acct, AccountUUID: "b2", OrgUUID: "o2"},
 	}}
-	roster := filepath.Join(p.Home, "roster-bin")
-	testutil.WriteFile(t, roster, "#!/bin/sh\n")
-	os.Chmod(roster, 0o755)
+	hotseat := filepath.Join(p.Home, "hotseat-bin")
+	testutil.WriteFile(t, hotseat, "#!/bin/sh\n")
+	os.Chmod(hotseat, 0o755)
 	os.MkdirAll(p.ShimDir(), 0o755)
-	if err := os.Symlink(roster, filepath.Join(p.ShimDir(), "claude")); err != nil {
+	if err := os.Symlink(hotseat, filepath.Join(p.ShimDir(), "claude")); err != nil {
 		t.Fatal(err)
 	}
 	env := []string{"PATH=" + p.ShimDir() + ":/usr/bin"}
@@ -158,7 +158,7 @@ func TestDoctorUnknownEntry(t *testing.T) {
 	got := check(t, f, env)
 	found := false
 	for _, x := range got {
-		if x.Code == "unknown-entry" && x.Level == "warn" && strings.Contains(x.Message, "roster share set scheduled-tasks shared|local") {
+		if x.Code == "unknown-entry" && x.Level == "warn" && strings.Contains(x.Message, "hotseat share set scheduled-tasks shared|local") {
 			found = true
 		}
 	}

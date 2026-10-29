@@ -1,11 +1,11 @@
-// Package cli implements the roster subcommands.
+// Package cli implements the hotseat subcommands.
 package cli
 
 import (
 	"fmt"
 	"io"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 const Version = "0.1.0"
@@ -25,16 +25,16 @@ var commands = map[string]command{
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: roster <command> [args]")
+		fmt.Fprintln(stderr, "usage: hotseat <command> [args]")
 		return 1
 	}
 	if args[0] == "version" {
-		fmt.Fprintf(stdout, "roster %s\n", Version)
+		fmt.Fprintf(stdout, "hotseat %s\n", Version)
 		return 0
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		fmt.Fprintf(stderr, "roster: unknown command %q\n", args[0])
+		fmt.Fprintf(stderr, "hotseat: unknown command %q\n", args[0])
 		return 1
 	}
 	p, err := paths.FromEnv()

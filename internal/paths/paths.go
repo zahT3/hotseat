@@ -1,5 +1,5 @@
-// Package paths derives every file location Roster uses from $HOME and
-// $ROSTER_HOME, so tests can redirect everything to temp dirs.
+// Package paths derives every file location Hotseat uses from $HOME and
+// $HOTSEAT_HOME, so tests can redirect everything to temp dirs.
 package paths
 
 import (
@@ -9,8 +9,8 @@ import (
 )
 
 type Paths struct {
-	Home      string
-	RosterDir string
+	Home     string
+	StateDir string
 }
 
 func FromEnv() (Paths, error) {
@@ -18,11 +18,11 @@ func FromEnv() (Paths, error) {
 	if home == "" {
 		return Paths{}, errors.New("HOME is not set")
 	}
-	rosterDir := os.Getenv("ROSTER_HOME")
-	if rosterDir == "" {
-		rosterDir = filepath.Join(home, ".config", "roster")
+	stateDir := os.Getenv("HOTSEAT_HOME")
+	if stateDir == "" {
+		stateDir = filepath.Join(home, ".config", "hotseat")
 	}
-	return Paths{Home: filepath.Clean(home), RosterDir: filepath.Clean(rosterDir)}, nil
+	return Paths{Home: filepath.Clean(home), StateDir: filepath.Clean(stateDir)}, nil
 }
 
 // CoreDir holds the single real copy of shared work data.
@@ -32,9 +32,9 @@ func (p Paths) CoreDir() string { return filepath.Join(p.Home, ".claude") }
 // CLAUDE_CONFIG_DIR is unset.
 func (p Paths) DefaultClaudeJSON() string { return filepath.Join(p.Home, ".claude.json") }
 
-func (p Paths) RegistryFile() string  { return filepath.Join(p.RosterDir, "accounts.json") }
-func (p Paths) CurrentFile() string   { return filepath.Join(p.RosterDir, "current") }
-func (p Paths) OverridesFile() string { return filepath.Join(p.RosterDir, "share-overrides.json") }
-func (p Paths) BackupsDir() string    { return filepath.Join(p.RosterDir, "backups") }
-func (p Paths) ShimDir() string       { return filepath.Join(p.RosterDir, "bin") }
+func (p Paths) RegistryFile() string  { return filepath.Join(p.StateDir, "accounts.json") }
+func (p Paths) CurrentFile() string   { return filepath.Join(p.StateDir, "current") }
+func (p Paths) OverridesFile() string { return filepath.Join(p.StateDir, "share-overrides.json") }
+func (p Paths) BackupsDir() string    { return filepath.Join(p.StateDir, "backups") }
+func (p Paths) ShimDir() string       { return filepath.Join(p.StateDir, "bin") }
 func (p Paths) Zshrc() string         { return filepath.Join(p.Home, ".zshrc") }

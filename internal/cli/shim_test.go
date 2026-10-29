@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 const zshrcOriginal = "export A=1\nalias claude2='CLAUDE_CONFIG_DIR=\"$HOME/.claude2\" claude'\n"
@@ -21,13 +21,13 @@ func TestShimInstallIdempotent(t *testing.T) {
 	}
 	b, _ := os.ReadFile(p.Zshrc())
 	got := string(b)
-	if strings.Count(got, "# >>> roster >>>") != 1 || strings.Count(got, "# <<< roster <<<") != 1 {
-		t.Errorf("want exactly one roster block:\n%s", got)
+	if strings.Count(got, "# >>> hotseat >>>") != 1 || strings.Count(got, "# <<< hotseat <<<") != 1 {
+		t.Errorf("want exactly one hotseat block:\n%s", got)
 	}
 	if !strings.HasPrefix(got, zshrcOriginal) {
 		t.Errorf("original content changed:\n%s", got)
 	}
-	if !strings.Contains(got, `export PATH="$HOME/.config/roster/bin:$PATH"`) {
+	if !strings.Contains(got, `export PATH="$HOME/.config/hotseat/bin:$PATH"`) {
 		t.Errorf("PATH line missing:\n%s", got)
 	}
 	self, _ := os.Executable()
@@ -73,7 +73,7 @@ func TestShimInstallKeepsSymlinkedZshrc(t *testing.T) {
 		t.Errorf("~/.zshrc symlink was replaced by a file")
 	}
 	b, _ := os.ReadFile(real)
-	if !strings.Contains(string(b), "# >>> roster >>>") {
+	if !strings.Contains(string(b), "# >>> hotseat >>>") {
 		t.Error("block not written through the symlink")
 	}
 }

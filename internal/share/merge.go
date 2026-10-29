@@ -158,7 +158,7 @@ func copyFile(src, dst string, perm os.FileMode) error {
 
 // writeFileAtomic replaces path via a temp file in the same dir.
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".roster-tmp*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".hotseat-tmp*")
 	if err != nil {
 		return err
 	}

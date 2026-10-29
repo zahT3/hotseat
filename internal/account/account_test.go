@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func TestReadIdentityReadsOnlyOauthUUIDs(t *testing.T) {

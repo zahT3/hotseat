@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 // fakeClaude puts a `claude` first on PATH that, on `auth login`, writes
@@ -67,7 +67,7 @@ func TestAddRegistersAndLinks(t *testing.T) {
 	if info.Mode().Perm() != 0o700 {
 		t.Errorf("dir perm = %o", info.Mode().Perm())
 	}
-	if !strings.Contains(out, "roster share apply") {
+	if !strings.Contains(out, "hotseat share apply") {
 		t.Errorf("missing MCP hint in output:\n%s", out)
 	}
 }

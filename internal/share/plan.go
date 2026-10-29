@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 type ActionKind string
@@ -52,7 +52,7 @@ func (pl Plan) Conflicts() int {
 func MakePlan(p paths.Paths, reg account.Registry, c Classifier) (Plan, error) {
 	def, ok := reg.Default()
 	if !ok {
-		return Plan{}, errors.New("no default account (~/.claude) registered; run `roster init`")
+		return Plan{}, errors.New("no default account (~/.claude) registered; run `hotseat init`")
 	}
 	pl := Plan{Actions: []Action{}}
 	items := c.SharedNames()

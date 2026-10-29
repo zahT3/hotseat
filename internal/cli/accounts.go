@@ -7,8 +7,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 func cmdAccounts(p paths.Paths, args []string, stdout, stderr io.Writer) int {
@@ -77,6 +77,6 @@ func hasFlag(args []string, flag string) bool {
 }
 
 func fail(stderr io.Writer, err error) int {
-	fmt.Fprintf(stderr, "roster: %v\n", err)
+	fmt.Fprintf(stderr, "hotseat: %v\n", err)
 	return 1
 }

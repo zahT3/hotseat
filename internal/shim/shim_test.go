@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func testRegistry(home string) account.Registry {
@@ -94,7 +94,7 @@ func writeExec(t *testing.T, path string) {
 
 func TestFindRealClaudeSkipsShimAndSelf(t *testing.T) {
 	base := t.TempDir()
-	self := filepath.Join(base, "roster")
+	self := filepath.Join(base, "hotseat")
 	writeExec(t, self)
 	shimDir := filepath.Join(base, "shim")
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
@@ -107,7 +107,7 @@ func TestFindRealClaudeSkipsShimAndSelf(t *testing.T) {
 	if err := os.Symlink(shimDir, linkToShim); err != nil {
 		t.Fatal(err)
 	}
-	// A second symlink to roster outside the shim dir must also be skipped.
+	// A second symlink to hotseat outside the shim dir must also be skipped.
 	otherDir := filepath.Join(base, "other")
 	if err := os.MkdirAll(otherDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestRunFallsBackOnCorruptRegistry(t *testing.T) {
 	if !reflect.DeepEqual(gotEnv, before) {
 		t.Errorf("env changed despite corrupt registry")
 	}
-	if !strings.HasPrefix(errb.String(), "roster:") {
+	if !strings.HasPrefix(errb.String(), "hotseat:") {
 		t.Errorf("stderr = %q", errb.String())
 	}
 }

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/share"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/share"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func noClaude() ([]int, error) { return nil, nil }
@@ -52,7 +52,7 @@ func snapshot(t *testing.T, f fixture) map[string]string {
 }
 
 // readForSnap returns file content; .claude.json is compared by meaning
-// because roster rewrites it when it changes the mcpServers key.
+// because hotseat rewrites it when it changes the mcpServers key.
 func readForSnap(path string) string {
 	b, _ := os.ReadFile(path)
 	if filepath.Base(path) != ".claude.json" {

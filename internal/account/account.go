@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 type Account struct {

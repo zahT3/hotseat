@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/zahT3/roster/internal/share"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/share"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func TestClassifyBuiltins(t *testing.T) {

@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/share"
-	"github.com/zahT3/roster/internal/shim"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/share"
+	"github.com/zahT3/hotseat/internal/shim"
 )
 
 var accountNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
@@ -56,7 +56,7 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	a := account.Account{Name: name, ConfigDir: dir}
 	id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
 	if errors.Is(err, account.ErrNoIdentity) {
-		return fail(stderr, fmt.Errorf("login did not complete; %s was left in place, retry with: roster add %s --dir %s", dir, name, dir))
+		return fail(stderr, fmt.Errorf("login did not complete; %s was left in place, retry with: hotseat add %s --dir %s", dir, name, dir))
 	}
 	if err != nil {
 		return fail(stderr, err)
@@ -76,7 +76,7 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	fmt.Fprintf(stdout, "added %s (%s)\n", name, tildePath(p, dir))
-	fmt.Fprintln(stdout, "MCP servers are copied to the new account the next time you run: roster share apply")
+	fmt.Fprintln(stdout, "MCP servers are copied to the new account the next time you run: hotseat share apply")
 	return 0
 }
 
@@ -97,7 +97,7 @@ func linkNewAccount(p paths.Paths, reg account.Registry, name string) error {
 			continue
 		}
 		if act.Kind != share.Link {
-			return fmt.Errorf("unexpected %s for %s in a fresh account dir; run roster doctor", act.Kind, act.Item)
+			return fmt.Errorf("unexpected %s for %s in a fresh account dir; run hotseat doctor", act.Kind, act.Item)
 		}
 		mine.Actions = append(mine.Actions, act)
 	}
@@ -118,7 +118,7 @@ func parseAddArgs(p paths.Paths, args []string) (name, dir string, err error) {
 		case name == "":
 			name = args[i]
 		default:
-			return "", "", errors.New("usage: roster add <name> [--dir <path>]")
+			return "", "", errors.New("usage: hotseat add <name> [--dir <path>]")
 		}
 	}
 	if !accountNameRe.MatchString(name) {

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/share"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/share"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 type fixture struct {

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/cli"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/cli"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func run(t *testing.T, args ...string) (int, string, string) {

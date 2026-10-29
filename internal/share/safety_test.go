@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/share"
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/share"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 // threeAccounts adds claude3 to the two-account fixture.
@@ -170,7 +170,7 @@ func TestRollbackRetryAfterPartialFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Steps get half undone: links removed and account copies restored, then
-	// moving the copies roster added to core aside fails.
+	// moving the copies hotseat added to core aside fails.
 	aside := filepath.Join(f.p.BackupsDir(), m.ID, "rollback-removed")
 	mkdir(t, aside)
 	os.Chmod(aside, 0o555)

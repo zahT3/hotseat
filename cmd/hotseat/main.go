@@ -4,8 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zahT3/roster/internal/cli"
-	"github.com/zahT3/roster/internal/shim"
+	"github.com/zahT3/hotseat/internal/cli"
+	"github.com/zahT3/hotseat/internal/shim"
 )
 
 func main() {

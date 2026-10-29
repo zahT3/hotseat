@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 type Class string

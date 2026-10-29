@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahT3/roster/internal/testutil"
+	"github.com/zahT3/hotseat/internal/testutil"
 )
 
 func TestApplyConflictLinePointsToAccountCopy(t *testing.T) {

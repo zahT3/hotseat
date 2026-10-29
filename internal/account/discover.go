@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 var aliasRe = regexp.MustCompile(`(?m)^\s*alias\s+([A-Za-z0-9_.-]+)=['"]?CLAUDE_CONFIG_DIR=["']?([^"'\s\\]+)["']?\s+claude\b`)

@@ -7,14 +7,14 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/share"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/share"
 )
 
 func cmdShare(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: roster share plan|apply|rollback|backups|set")
+		fmt.Fprintln(stderr, "usage: hotseat share plan|apply|rollback|backups|set")
 		return 1
 	}
 	switch args[0] {
@@ -29,14 +29,14 @@ func cmdShare(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	case "backups":
 		return cmdShareBackups(p, args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "roster: unknown share command %q\n", args[0])
+		fmt.Fprintf(stderr, "hotseat: unknown share command %q\n", args[0])
 		return 1
 	}
 }
 
 func cmdShareSet(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if len(args) != 2 {
-		fmt.Fprintln(stderr, "usage: roster share set <item> shared|local")
+		fmt.Fprintln(stderr, "usage: hotseat share set <item> shared|local")
 		return 1
 	}
 	if err := share.SetOverride(p, args[0], share.Class(args[1])); err != nil {
@@ -98,7 +98,7 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	}
 	m, err := share.Apply(p, reg, pl, share.ApplyOptions{Force: hasFlag(args, "--force")})
 	if errors.Is(err, share.ErrClaudeRunning) {
-		fmt.Fprintf(stderr, "roster: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
+		fmt.Fprintf(stderr, "hotseat: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
 		return 2
 	}
 	if err != nil {
@@ -116,8 +116,8 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	fmt.Fprintf(stdout, "%d conflicts skipped; run `roster doctor` to review\n", pl.Conflicts())
-	fmt.Fprintf(stdout, "backup %s; undo with: roster share rollback %s\n", m.ID, m.ID)
+	fmt.Fprintf(stdout, "%d conflicts skipped; run `hotseat doctor` to review\n", pl.Conflicts())
+	fmt.Fprintf(stdout, "backup %s; undo with: hotseat share rollback %s\n", m.ID, m.ID)
 	return 0
 }
 
@@ -129,7 +129,7 @@ func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) in
 		}
 	}
 	if id == "" {
-		fmt.Fprintln(stderr, "usage: roster share rollback <backup-id> [--force]   (list ids with: roster share backups)")
+		fmt.Fprintln(stderr, "usage: hotseat share rollback <backup-id> [--force]   (list ids with: hotseat share backups)")
 		return 1
 	}
 	moved, err := share.Rollback(p, id, share.RollbackOptions{Force: hasFlag(args, "--force")})
@@ -137,7 +137,7 @@ func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stdout, "changed since the apply, moved aside (not deleted): %s\n", tildePath(p, m))
 	}
 	if errors.Is(err, share.ErrClaudeRunning) {
-		fmt.Fprintf(stderr, "roster: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
+		fmt.Fprintf(stderr, "hotseat: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
 		return 2
 	}
 	if err != nil {

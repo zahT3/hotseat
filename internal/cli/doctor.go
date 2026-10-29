@@ -5,9 +5,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/doctor"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/doctor"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 func cmdDoctor(p paths.Paths, args []string, stdout, stderr io.Writer) int {

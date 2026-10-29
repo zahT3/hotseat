@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
-	"github.com/zahT3/roster/internal/share"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
+	"github.com/zahT3/hotseat/internal/share"
 )
 
 type Finding struct {
@@ -70,13 +70,13 @@ func Check(p paths.Paths, reg account.Registry, env []string) ([]Finding, error)
 		}
 		switch act.Kind {
 		case share.Link:
-			add("warn", "shared-missing", act.Account, act.Path, act.Item+" is not linked to the shared copy yet; run roster share apply")
+			add("warn", "shared-missing", act.Account, act.Path, act.Item+" is not linked to the shared copy yet; run hotseat share apply")
 		case share.ReplaceWithLink, share.MergeJSONL, share.MergeDir, share.Adopt:
-			add("error", "shared-diverged", act.Account, act.Path, act.Item+" is a separate copy, not the shared one; run roster share apply")
+			add("error", "shared-diverged", act.Account, act.Path, act.Item+" is a separate copy, not the shared one; run hotseat share apply")
 		case share.Conflict:
 			add("error", "shared-conflict", act.Account, act.Path, act.Item+": "+act.Detail+"; resolve by hand")
 		case share.SyncMCP:
-			add("warn", "mcp-diverged", "", "", "MCP servers differ between accounts ("+act.Detail+"); run roster share apply")
+			add("warn", "mcp-diverged", "", "", "MCP servers differ between accounts ("+act.Detail+"); run hotseat share apply")
 		}
 	}
 
@@ -93,7 +93,7 @@ func Check(p paths.Paths, reg account.Registry, env []string) ([]Finding, error)
 			switch c.Classify(e.Name()) {
 			case share.Unknown:
 				add("warn", "unknown-entry", a.Name, path,
-					fmt.Sprintf("roster does not know whether %s is work or account data; classify it with: roster share set %s shared|local", e.Name(), e.Name()))
+					fmt.Sprintf("hotseat does not know whether %s is work or account data; classify it with: hotseat share set %s shared|local", e.Name(), e.Name()))
 			case share.Pending:
 				add("info", "pending-entry", a.Name, path, e.Name()+" stays per account until sharing it is tested")
 			}
@@ -135,7 +135,7 @@ func shimFinding(p paths.Paths, env []string) *Finding {
 	shim := filepath.Join(p.ShimDir(), "claude")
 	shimTarget, err := filepath.EvalSymlinks(shim)
 	if err != nil {
-		return &Finding{Level: "info", Code: "shim-inactive", Path: shim, Message: "claude shim not installed; run roster shim install"}
+		return &Finding{Level: "info", Code: "shim-inactive", Path: shim, Message: "claude shim not installed; run hotseat shim install"}
 	}
 	pathEnv, _ := lookup(env, "PATH")
 	for _, dir := range filepath.SplitList(pathEnv) {
@@ -148,7 +148,7 @@ func shimFinding(p paths.Paths, env []string) *Finding {
 			return nil
 		}
 		return &Finding{Level: "info", Code: "shim-inactive", Path: candidate,
-			Message: "`claude` on PATH is not the roster shim, so it ignores the current account; open a new shell after roster shim install"}
+			Message: "`claude` on PATH is not the hotseat shim, so it ignores the current account; open a new shell after hotseat shim install"}
 	}
 	return &Finding{Level: "info", Code: "shim-inactive", Message: "no claude on PATH"}
 }

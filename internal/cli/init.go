@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/zahT3/roster/internal/account"
-	"github.com/zahT3/roster/internal/paths"
+	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
@@ -34,7 +34,7 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "registered %d account(s)\n", len(reg.Accounts))
 	printAccounts(p, reg, stdout)
-	fmt.Fprintln(stdout, "next: roster share plan")
+	fmt.Fprintln(stdout, "next: hotseat share plan")
 	return 0
 }
 
