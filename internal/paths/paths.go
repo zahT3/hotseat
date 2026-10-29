@@ -41,6 +41,14 @@ func (p Paths) Zshrc() string         { return filepath.Join(p.Home, ".zshrc") }
 func (p Paths) UsageDir() string      { return filepath.Join(p.StateDir, "usage") }
 func (p Paths) ChainFile() string     { return filepath.Join(p.StateDir, "statusline-chain.json") }
 
+// Desktop data dirs of inactive accounts are parked under DesktopStoreDir.
+func (p Paths) DesktopStoreDir() string { return filepath.Join(p.StateDir, "desktop") }
+func (p Paths) DesktopProfileDir(name string) string {
+	return filepath.Join(p.DesktopStoreDir(), "profiles", name)
+}
+func (p Paths) DesktopStateFile() string { return filepath.Join(p.DesktopStoreDir(), "state.json") }
+func (p Paths) DesktopJournal() string   { return filepath.Join(p.DesktopStoreDir(), "swap.json") }
+
 // DesktopDataDir is the default Claude Desktop data dir.
 func (p Paths) DesktopDataDir() string {
 	return filepath.Join(p.Home, "Library", "Application Support", "Claude")

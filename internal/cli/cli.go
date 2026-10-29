@@ -25,6 +25,7 @@ var commands = map[string]command{
 	"hook":       cmdHook,
 	"handoff":    cmdHandoff,
 	"usage":      cmdUsage,
+	"desktop":    cmdDesktop,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {

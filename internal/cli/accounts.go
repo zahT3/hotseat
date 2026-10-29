@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
 
@@ -91,4 +92,9 @@ func positional(args []string) []string {
 func fail(stderr io.Writer, err error) int {
 	fmt.Fprintf(stderr, "hotseat: %v\n", err)
 	return 1
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
