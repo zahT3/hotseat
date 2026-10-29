@@ -23,6 +23,7 @@ type windowView struct {
 
 type usageRow struct {
 	Account     string          `json:"account"`
+	Error       string          `json:"error,omitempty"`
 	Current     bool            `json:"current"`
 	FiveHour    *windowView     `json:"fiveHour"`
 	SevenDay    *windowView     `json:"sevenDay"`
@@ -38,26 +39,45 @@ func view(w *usage.Window, now time.Time) *windowView {
 	return &windowView{UsedPercent: pct, ResetsAt: w.ResetsAt, ObservedAt: w.ObservedAt, Source: w.Source, Reset: reset}
 }
 
+// loadRecords reads every account's record with Claude Desktop's samples
+// merged in: the one view both `usage` and the handoff recommendation use.
+func loadRecords(p paths.Paths, reg account.Registry) (map[string]usage.Record, map[string]error) {
+	samples, err := usage.ReadDesktopSamples(filepath.Join(p.DesktopDataDir(), "plan-usage-history.json"))
+	if err != nil {
+		samples = nil
+	}
+	records := map[string]usage.Record{}
+	errs := map[string]error{}
+	for _, a := range reg.Accounts {
+		r, err := usage.Load(p, a.Name)
+		if err != nil {
+			errs[a.Name] = err
+			r = usage.Record{Account: a.Name}
+		}
+		if s, ok := samples[a.OrgUUID]; ok {
+			r = usage.MergeDesktop(r, &s)
+		}
+		records[a.Name] = r
+	}
+	return records, errs
+}
+
 func usageRows(p paths.Paths, now time.Time) ([]usageRow, error) {
 	reg, err := account.LoadRegistry(p)
 	if err != nil {
 		return nil, err
 	}
 	cur, _ := account.CurrentName(p)
-	samples, err := usage.ReadDesktopSamples(filepath.Join(p.DesktopDataDir(), "plan-usage-history.json"))
-	if err != nil {
-		samples = nil
-	}
+	records, errs := loadRecords(p, reg)
 	rows := []usageRow{}
 	for _, a := range reg.Accounts {
-		r, err := usage.Load(p, a.Name)
-		if err != nil {
-			return nil, err
-		}
-		if s, ok := samples[a.OrgUUID]; ok {
-			r = usage.MergeDesktop(r, &s)
+		r := records[a.Name]
+		var errText string
+		if e := errs[a.Name]; e != nil {
+			errText = e.Error()
 		}
 		rows = append(rows, usageRow{
+			Error:   errText,
 			Account: a.Name, Current: a.Name == cur,
 			FiveHour: view(r.FiveHour, now), SevenDay: view(r.SevenDay, now),
 			Limit: r.Limit, LimitActive: r.Limit.Active(now),
@@ -82,6 +102,9 @@ func cmdUsage(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 			mark = "*"
 		}
 		cols := []string{mark + " " + r.Account, fmtWindow("5h", r.FiveHour, now), fmtWindow("7d", r.SevenDay, now), fmtAge(r, now)}
+		if r.Error != "" {
+			cols = append(cols, "unreadable usage data: "+r.Error)
+		}
 		if r.LimitActive {
 			until := "unknown"
 			if r.Limit.ResetsAt > 0 {
@@ -114,10 +137,16 @@ func fmtWindow(label string, w *windowView, now time.Time) string {
 
 func fmtWhen(unix int64, now time.Time) string {
 	t := time.Unix(unix, 0).In(now.Location())
-	if t.Sub(now) < 24*time.Hour {
+	y1, m1, d1 := t.Date()
+	y2, m2, d2 := now.Date()
+	switch {
+	case y1 == y2 && m1 == m2 && d1 == d2:
 		return t.Format("15:04")
+	case t.Sub(now) < 6*24*time.Hour:
+		return t.Format("Mon 15:04")
+	default:
+		return t.Format("Jan 2 15:04")
 	}
-	return t.Format("Mon 15:04")
 }
 
 func fmtAge(r usageRow, now time.Time) string {

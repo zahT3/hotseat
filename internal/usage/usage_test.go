@@ -3,6 +3,7 @@ package usage_test
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +25,7 @@ func TestObserveWritesOnlyOnChange(t *testing.T) {
 	file := filepath.Join(p.UsageDir(), "claude2.json")
 	old := time.Unix(1_000_000_000, 0)
 	os.Chtimes(file, old, old)
-	if err := usage.ObserveRateLimits(p, "claude2", rl, now.Add(time.Minute)); err != nil {
+	if err := usage.ObserveRateLimits(p, "claude2", rl, now.Add(30*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	info, _ := os.Stat(file)
@@ -88,5 +89,42 @@ func TestObserveClearsExpiredLimit(t *testing.T) {
 	r, _ = usage.Load(p, "b")
 	if r.Limit == nil {
 		t.Error("active limit dropped")
+	}
+}
+
+func TestObserveRefreshesObservedAt(t *testing.T) {
+	p := testutil.FakeHome(t)
+	now := time.Unix(1_900_000_000, 0)
+	rl := usage.RateLimits{SevenDay: win(100, 1_900_300_000)}
+	usage.ObserveRateLimits(p, "a", rl, now)
+	usage.ObserveRateLimits(p, "a", rl, now.Add(2*time.Minute))
+	r, _ := usage.Load(p, "a")
+	if r.SevenDay.ObservedAt != now.Add(2*time.Minute).Unix() {
+		t.Errorf("observedAt = %d, want the latest observation", r.SevenDay.ObservedAt)
+	}
+}
+
+func TestConcurrentObserveKeepsLimit(t *testing.T) {
+	p := testutil.FakeHome(t)
+	now := time.Unix(1_900_000_000, 0)
+	for round := 0; round < 20; round++ {
+		name := "acct" + string(rune('a'+round))
+		var wg sync.WaitGroup
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				usage.ObserveRateLimits(p, name, usage.RateLimits{FiveHour: win(float64(i), 1_900_010_000)}, now)
+			}(i)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			usage.SetLimit(p, name, usage.LimitHit{Message: "limit", ResetsAt: 1_900_500_000, ObservedAt: now.Unix()})
+		}()
+		wg.Wait()
+		if r, _ := usage.Load(p, name); r.Limit == nil {
+			t.Fatalf("round %d: the limit written by the hook was lost", round)
+		}
 	}
 }

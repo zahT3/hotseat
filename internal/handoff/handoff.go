@@ -7,6 +7,7 @@ package handoff
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,8 +42,12 @@ func Offer(p paths.Paths, reg account.Registry, r Request, run Runner) error {
 		return fmt.Errorf("account %q is not registered", r.To)
 	}
 	cont := "Continue as " + r.To
-	text := fmt.Sprintf("%s hit its usage limit (resets %s).\n\nContinue this session as %s?\n\nContext is about %dk tokens; the first message on %s reads it again without cache.\n\nDo not keep typing in the old window.",
-		r.From, resets, r.To, (r.Tokens+500)/1000, r.To)
+	project := "this session"
+	if r.Cwd != "" {
+		project = filepath.Base(r.Cwd)
+	}
+	text := fmt.Sprintf("%s hit its usage limit in %s (resets %s).\n\nContinue this session as %s?\n\nContext is about %dk tokens; the first message on %s reads it again without cache.\n\nDo not keep typing in the old window.",
+		r.From, project, resets, r.To, (r.Tokens+500)/1000, r.To)
 	pressed, err := run.Dialog(text, []string{"Not now", cont}, cont)
 	if err != nil || pressed != cont {
 		return err

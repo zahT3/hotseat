@@ -17,8 +17,10 @@ import (
 const tailBytes = 256 << 10
 
 type entry struct {
-	Type    string `json:"type"`
-	Message struct {
+	Type              string `json:"type"`
+	IsAPIErrorMessage bool   `json:"isApiErrorMessage"`
+	Message           struct {
+		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 		Usage   *struct {
 			Input         int `json:"input_tokens"`
@@ -80,26 +82,35 @@ func text(content json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// LastLimitMessage returns the text of the newest assistant message that
-// reads like a usage-limit notice ("... limit · resets ...").
+// IsLimitText reports whether s reads like a usage-limit notice rather than
+// a transient error such as a 429 retry.
+func IsLimitText(s string) bool {
+	l := strings.ToLower(s)
+	return strings.Contains(l, "limit") && (strings.Contains(l, "resets") || strings.Contains(l, "hit your"))
+}
+
+// LastLimitMessage returns the text of the newest API-error entry that
+// reads like a usage-limit notice. Ordinary assistant prose is ignored, so a
+// model talking about limits never counts.
 func LastLimitMessage(path string) (string, bool) {
 	lines := tail(path)
 	for i := len(lines) - 1; i >= 0; i-- {
 		var e entry
-		if json.Unmarshal([]byte(lines[i]), &e) != nil || e.Type != "assistant" {
+		if json.Unmarshal([]byte(lines[i]), &e) != nil || e.Type != "assistant" || !e.IsAPIErrorMessage {
 			continue
 		}
 		t := strings.TrimSpace(text(e.Message.Content))
-		lower := strings.ToLower(t)
-		if strings.Contains(lower, "limit") && strings.Contains(lower, "resets") {
+		if IsLimitText(t) {
 			return t, true
 		}
 	}
 	return "", false
 }
 
-// ContextTokens is the input size of the session's latest request: what a
-// different account has to read again without cache when it continues.
+// ContextTokens is the input size of the session's latest real request:
+// what a different account has to read again without cache when it
+// continues. Claude Code's synthetic error entries carry zero usage and are
+// skipped.
 func ContextTokens(path string) int {
 	lines := tail(path)
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -107,14 +118,21 @@ func ContextTokens(path string) int {
 		if json.Unmarshal([]byte(lines[i]), &e) != nil || e.Type != "assistant" || e.Message.Usage == nil {
 			continue
 		}
+		if e.IsAPIErrorMessage || e.Message.Model == "<synthetic>" {
+			continue
+		}
 		u := e.Message.Usage
-		return u.Input + u.CacheCreation + u.CacheRead
+		if n := u.Input + u.CacheCreation + u.CacheRead; n > 0 {
+			return n
+		}
 	}
 	return 0
 }
 
 var (
-	resetRe = regexp.MustCompile(`(?i)resets\s+(?:at\s+)?(.+?)\s*(?:\(([^)]+)\))?\s*$`)
+	// "resets <when> [(<zone>)]", ending at " · ", a newline or the end, so
+	// suffixes such as " · progress saved" do not break it.
+	resetRe = regexp.MustCompile(`(?i)resets\s+(?:at\s+)?([^·()\n]+?)\s*(?:\(([^)]+)\))?\s*(?:·|\n|$)`)
 	dateRe  = regexp.MustCompile(`(?i)^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,|\s+at)?\s+(.+)$`)
 	clockRe = regexp.MustCompile(`(?i)^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$`)
 )
@@ -180,9 +198,25 @@ func ParseResetTime(msg string, now time.Time) (time.Time, bool) {
 		}
 		return t, true
 	}
-	t := time.Date(now.Year(), month, day, hour, minute, 0, 0, loc)
-	if t.Before(now.AddDate(0, 0, -1)) {
-		t = t.AddDate(1, 0, 0)
+	// The message has no year: take the candidate nearest to now, and accept
+	// it only if it is a plausible reset (at most a day late, at most a week
+	// and a day ahead).
+	var t time.Time
+	for _, y := range []int{now.Year() - 1, now.Year(), now.Year() + 1} {
+		c := time.Date(y, month, day, hour, minute, 0, 0, loc)
+		if t.IsZero() || absDur(c.Sub(now)) < absDur(t.Sub(now)) {
+			t = c
+		}
+	}
+	if t.Before(now.Add(-24*time.Hour)) || t.After(now.Add(8*24*time.Hour)) {
+		return time.Time{}, false
 	}
 	return t, true
+}
+
+func absDur(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/zahT3/hotseat/internal/paths"
@@ -92,34 +93,64 @@ func Save(p paths.Paths, r Record) error {
 	return os.Rename(tmp.Name(), file(p, r.Account))
 }
 
-// ObserveRateLimits records the windows present in rl. The statusLine runs
-// on every render, so the file is only rewritten when a value changed.
-func ObserveRateLimits(p paths.Paths, name string, rl RateLimits, now time.Time) error {
+// Update runs a read-modify-write of one account's record under an
+// exclusive lock, so the statusLine and the StopFailure hook (which fire
+// together at the end of a limited turn) cannot overwrite each other.
+func Update(p paths.Paths, name string, change func(r *Record) bool) error {
+	if err := os.MkdirAll(p.UsageDir(), 0o700); err != nil {
+		return err
+	}
+	lf, err := os.OpenFile(filepath.Join(p.UsageDir(), name+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(lf.Fd()), syscall.LOCK_UN)
 	r, err := Load(p, name)
 	if err != nil {
 		return err
 	}
-	changed := false
-	apply := func(dst **Window, src *RateWindow) {
-		if src == nil {
-			return
-		}
-		if *dst != nil && (*dst).UsedPercent == src.UsedPercentage && (*dst).ResetsAt == src.ResetsAt {
-			return
-		}
-		*dst = &Window{UsedPercent: src.UsedPercentage, ResetsAt: src.ResetsAt, ObservedAt: now.Unix(), Source: "statusline"}
-		changed = true
-	}
-	apply(&r.FiveHour, rl.FiveHour)
-	apply(&r.SevenDay, rl.SevenDay)
-	if (rl.FiveHour != nil || rl.SevenDay != nil) && r.Limit != nil && r.Limit.ResetsAt > 0 && r.Limit.ResetsAt <= now.Unix() {
-		r.Limit = nil
-		changed = true
-	}
-	if !changed {
+	if !change(&r) {
 		return nil
 	}
 	return Save(p, r)
+}
+
+// refreshAfter is how stale an unchanged observation may get before the
+// statusLine rewrites it, so "updated Xm ago" stays honest.
+const refreshAfter = 60
+
+// ObserveRateLimits records the windows present in rl. The statusLine runs
+// on every render, so the file is rewritten only when a value changed or the
+// last observation is more than a minute old.
+func ObserveRateLimits(p paths.Paths, name string, rl RateLimits, now time.Time) error {
+	if rl.FiveHour == nil && rl.SevenDay == nil {
+		return nil
+	}
+	return Update(p, name, func(r *Record) bool {
+		changed := false
+		apply := func(dst **Window, src *RateWindow) {
+			if src == nil {
+				return
+			}
+			w := *dst
+			if w != nil && w.UsedPercent == src.UsedPercentage && w.ResetsAt == src.ResetsAt && now.Unix()-w.ObservedAt < refreshAfter {
+				return
+			}
+			*dst = &Window{UsedPercent: src.UsedPercentage, ResetsAt: src.ResetsAt, ObservedAt: now.Unix(), Source: "statusline"}
+			changed = true
+		}
+		apply(&r.FiveHour, rl.FiveHour)
+		apply(&r.SevenDay, rl.SevenDay)
+		if r.Limit != nil && r.Limit.ResetsAt > 0 && r.Limit.ResetsAt <= now.Unix() {
+			r.Limit = nil
+			changed = true
+		}
+		return changed
+	})
 }
 
 // Effective is the usage a window stands at now: a window whose reset time
@@ -132,4 +163,12 @@ func Effective(w *Window, now time.Time) (pct float64, known, reset bool) {
 		return 0, true, true
 	}
 	return w.UsedPercent, true, false
+}
+
+// SetLimit records that the account hit a usage limit.
+func SetLimit(p paths.Paths, name string, l LimitHit) error {
+	return Update(p, name, func(r *Record) bool {
+		r.Limit = &l
+		return true
+	})
 }

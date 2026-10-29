@@ -133,3 +133,14 @@ func TestAppleScriptEscaping(t *testing.T) {
 		t.Errorf("got %s, want %s", got, want)
 	}
 }
+
+func TestOfferNamesProject(t *testing.T) {
+	p, reg := setup(t)
+	r := req
+	r.Cwd = "/Users/x/Developer/projX"
+	f := &fakeRunner{press: "Not now"}
+	handoff.Offer(p, reg, r, f)
+	if !strings.Contains(f.dialogText, "projX") {
+		t.Errorf("dialog does not name the project:\n%s", f.dialogText)
+	}
+}

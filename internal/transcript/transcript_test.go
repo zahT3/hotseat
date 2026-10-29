@@ -76,9 +76,9 @@ func writeTranscript(t *testing.T, lines ...string) string {
 
 func TestLastLimitMessageFindsLast(t *testing.T) {
 	f := writeTranscript(t,
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"old limit · resets 1pm"}]}}`,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"old limit · resets 1pm"}]}}`,
 		`{"type":"user","message":{"content":"hi"}}`,
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"`+observed+`"}]}}`,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"content":[{"type":"text","text":"`+observed+`"}]}}`,
 		`{"type":"system","subtype":"stop_hook_summary"}`,
 	)
 	got, ok := transcript.LastLimitMessage(f)
@@ -104,5 +104,64 @@ func TestTranscriptMissingFile(t *testing.T) {
 	}
 	if n := transcript.ContextTokens("/nonexistent/x.jsonl"); n != 0 {
 		t.Errorf("got %d", n)
+	}
+}
+
+// errorEntry is how Claude Code writes a limit notice: a synthetic assistant
+// message with zero usage.
+func errorEntry(text string) string {
+	return `{"type":"assistant","isApiErrorMessage":true,"message":{"model":"<synthetic>","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"` + text + `"}]}}`
+}
+
+func TestContextTokensSkipsSyntheticError(t *testing.T) {
+	f := writeTranscript(t,
+		`{"type":"assistant","message":{"usage":{"input_tokens":2,"cache_creation_input_tokens":20000,"cache_read_input_tokens":160000}}}`,
+		errorEntry(observed),
+	)
+	if got := transcript.ContextTokens(f); got != 180002 {
+		t.Errorf("got %d", got)
+	}
+}
+
+func TestLastLimitMessageOnlyApiErrors(t *testing.T) {
+	f := writeTranscript(t,
+		errorEntry(observed),
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"Your rate limit config resets 6pm daily."}]}}`,
+	)
+	if got, ok := transcript.LastLimitMessage(f); !ok || got != observed {
+		t.Errorf("got %q %v", got, ok)
+	}
+}
+
+func TestParseResetWithSuffix(t *testing.T) {
+	loc := shanghai(t)
+	now := time.Date(2026, 10, 28, 18, 0, 0, 0, loc)
+	got, ok := transcript.ParseResetTime(observed+" · progress saved", now)
+	if want := time.Date(2026, 11, 1, 18, 0, 0, 0, loc); !ok || !got.Equal(want) {
+		t.Errorf("got %v %v, want %v", got, ok, want)
+	}
+	got, ok = transcript.ParseResetTime("You've hit your session limit · resets 3pm · progress saved", time.Date(2026, 10, 29, 12, 0, 0, 0, time.Local))
+	if !ok || got.Hour() != 15 {
+		t.Errorf("time-only with suffix: %v %v", got, ok)
+	}
+}
+
+func TestParseResetRejectsFarDates(t *testing.T) {
+	loc := shanghai(t)
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, loc)
+	if got, ok := transcript.ParseResetTime("limit · resets Oct 25 at 6pm (Asia/Shanghai)", now); ok {
+		t.Errorf("a date 4 days in the past was accepted as %v", got)
+	}
+	if got, ok := transcript.ParseResetTime("limit · resets Dec 25 at 6pm (Asia/Shanghai)", now); ok {
+		t.Errorf("a date 2 months ahead was accepted as %v", got)
+	}
+}
+
+func TestParseResetYearBoundaryPast(t *testing.T) {
+	loc := shanghai(t)
+	now := time.Date(2027, 1, 1, 1, 0, 0, 0, loc)
+	got, ok := transcript.ParseResetTime("limit · resets Dec 31 at 11pm (Asia/Shanghai)", now)
+	if want := time.Date(2026, 12, 31, 23, 0, 0, 0, loc); !ok || !got.Equal(want) {
+		t.Errorf("got %v %v, want %v", got, ok, want)
 	}
 }

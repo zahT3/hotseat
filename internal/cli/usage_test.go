@@ -79,3 +79,26 @@ func TestUsageJSON(t *testing.T) {
 		t.Errorf("row 1 = %+v", rows[1].SevenDay)
 	}
 }
+
+func TestUsageTomorrowShowsDay(t *testing.T) {
+	p := twoAccounts(t)
+	run(t, "init")
+	now := time.Date(2026, 10, 29, 20, 0, 0, 0, time.Local)
+	tomorrow := time.Date(2026, 10, 30, 1, 30, 0, 0, time.Local)
+	usage.Save(p, usage.Record{Account: "claude2", FiveHour: &usage.Window{UsedPercent: 50, ResetsAt: tomorrow.Unix(), ObservedAt: now.Unix()}})
+	defer cli.SetClock(func() time.Time { return now })()
+	_, out, _ := run(t, "usage")
+	if !strings.Contains(out, "resets "+tomorrow.Format("Mon 15:04")) {
+		t.Errorf("tomorrow's reset not marked with its day:\n%s", out)
+	}
+}
+
+func TestUsageSurvivesCorruptRecord(t *testing.T) {
+	p := twoAccounts(t)
+	run(t, "init")
+	testutil.WriteFile(t, filepath.Join(p.UsageDir(), "claude2.json"), "{")
+	code, out, stderr := run(t, "usage")
+	if code != 0 || !strings.Contains(out, "claude2") || !strings.Contains(out, "unreadable") {
+		t.Errorf("exit %d out %q err %q", code, out, stderr)
+	}
+}

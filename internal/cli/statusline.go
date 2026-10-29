@@ -23,6 +23,10 @@ var stdin io.Reader = os.Stdin
 
 const chainTimeout = 800 * time.Millisecond
 
+// inChainKey marks a process started as a chained statusLine, so a chain
+// that leads back to hotseat cannot recurse.
+const inChainKey = "HOTSEAT_IN_STATUSLINE"
+
 // cmdStatusline runs on every status bar render, so it must stay fast and
 // must always print a line and exit 0, whatever goes wrong.
 func cmdStatusline(p paths.Paths, args []string, stdout, stderr io.Writer) int {
@@ -87,6 +91,9 @@ func effectiveRate(w *usage.Window, now time.Time) *usage.RateWindow {
 // runChain runs the statusLine command the user had before Hotseat, feeding
 // it the same JSON, and returns its first line.
 func runChain(p paths.Paths, raw []byte) string {
+	if os.Getenv(inChainKey) != "" {
+		return ""
+	}
 	b, err := os.ReadFile(p.ChainFile())
 	if err != nil {
 		return ""
@@ -94,13 +101,14 @@ func runChain(p paths.Paths, raw []byte) string {
 	var chain struct {
 		Command string `json:"command"`
 	}
-	if json.Unmarshal(b, &chain) != nil || chain.Command == "" {
+	if json.Unmarshal(b, &chain) != nil || chain.Command == "" || isOurs(chain.Command, "statusline") {
 		return ""
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), chainTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", chain.Command)
 	cmd.Stdin = bytes.NewReader(raw)
+	cmd.Env = append(os.Environ(), inChainKey+"=1")
 	// Kill the whole process group on timeout and stop waiting for pipes a
 	// leftover grandchild may still hold open.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

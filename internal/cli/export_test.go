@@ -34,3 +34,10 @@ func SetHandoffRunner(r handoff.Runner) func() {
 	handoffRunner = r
 	return func() { handoffRunner = old }
 }
+
+// SetSelfCommand fixes how settings.json refers to this binary.
+func SetSelfCommand(cmd string) func() {
+	old := selfCommand
+	selfCommand = func() (string, error) { return cmd, nil }
+	return func() { selfCommand = old }
+}

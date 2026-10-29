@@ -16,7 +16,7 @@ import (
 )
 
 // selfCommand is how settings.json should invoke this binary.
-func selfCommand() (string, error) {
+var selfCommand = func() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -28,14 +28,56 @@ func selfCommand() (string, error) {
 }
 
 // isOurs reports whether a settings.json command runs some hotseat binary
-// with the given subcommand, even one installed at another path.
+// with the given subcommand, even one installed at another path or quoted
+// because its path has spaces.
 func isOurs(command, sub string) bool {
-	self, _ := selfCommand()
-	first, rest, _ := strings.Cut(strings.TrimSpace(command), " ")
-	if strings.TrimSpace(rest) != sub {
+	word, rest, ok := firstWord(command)
+	if !ok || rest != sub {
 		return false
 	}
-	return first == self || filepath.Base(strings.Trim(first, `'"`)) == "hotseat"
+	self, _ := selfCommand()
+	selfWord, _, _ := firstWord(self)
+	return word == selfWord || filepath.Base(word) == "hotseat"
+}
+
+// firstWord splits off the first shell word of s, undoing quotes and
+// backslash escapes, and returns the trimmed rest.
+func firstWord(s string) (word, rest string, ok bool) {
+	s = strings.TrimSpace(s)
+	var b strings.Builder
+	inSingle, inDouble := false, false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
+			} else {
+				b.WriteByte(c)
+			}
+		case inDouble:
+			if c == '"' {
+				inDouble = false
+			} else if c == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+			} else {
+				b.WriteByte(c)
+			}
+		case c == '\'':
+			inSingle = true
+		case c == '"':
+			inDouble = true
+		case c == '\\' && i+1 < len(s):
+			i++
+			b.WriteByte(s[i])
+		case c == ' ' || c == '\t':
+			return b.String(), strings.TrimSpace(s[i:]), true
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String(), "", !inSingle && !inDouble
 }
 
 func settingsPath(p paths.Paths) string { return filepath.Join(p.CoreDir(), "settings.json") }
@@ -124,7 +166,20 @@ func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		if err != nil {
 			return fail(stderr, err)
 		}
-		if err := settings.AddHook(file, "StopFailure", "rate_limit", self+" hook stop-failure", settingsBackup(p)); err != nil {
+		cmd := self + " hook stop-failure"
+		// A hotseat installed at another path would fire a second dialog.
+		existing, err := settings.HookCommands(file, "StopFailure")
+		if err != nil {
+			return fail(stderr, err)
+		}
+		for _, c := range existing {
+			if c != cmd && isOurs(c, "hook stop-failure") {
+				if err := settings.RemoveHook(file, "StopFailure", c, settingsBackup(p)); err != nil {
+					return fail(stderr, err)
+				}
+			}
+		}
+		if err := settings.AddHook(file, "StopFailure", "rate_limit", cmd, settingsBackup(p)); err != nil {
 			return fail(stderr, err)
 		}
 		return report(stdout, stderr, jsonOut, map[string]string{"hook": self + " hook stop-failure"},

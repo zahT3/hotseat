@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -50,6 +49,7 @@ func cmdStopFailure(p paths.Paths, stdout, stderr io.Writer) int {
 		Cwd            string          `json:"cwd"`
 		Error          json.RawMessage `json:"error"`
 		Message        string          `json:"message"`
+		LastAssistant  string          `json:"last_assistant_message"`
 	}
 	if json.Unmarshal(raw, &in) != nil || in.SessionID == "" {
 		return 0
@@ -64,34 +64,31 @@ func cmdStopFailure(p paths.Paths, stdout, stderr io.Writer) int {
 	}
 	now := clock()
 
-	msg := in.Message
-	var errText string
-	if json.Unmarshal(in.Error, &errText) == nil && errText != "" {
-		msg = errText
-	}
-	if !strings.Contains(strings.ToLower(msg), "resets") {
-		if m, ok := transcript.LastLimitMessage(in.TranscriptPath); ok {
+	// Claude Code passes the rendered notice as last_assistant_message;
+	// older versions only leave it in the transcript. A rate_limit error
+	// without a usage-limit notice is a transient 429 and is ignored.
+	var msg string
+	for _, m := range []string{in.LastAssistant, in.Message} {
+		if transcript.IsLimitText(m) {
 			msg = m
+			break
 		}
+	}
+	if msg == "" {
+		m, ok := transcript.LastLimitMessage(in.TranscriptPath)
+		if !ok {
+			return 0
+		}
+		msg = m
 	}
 	var resets int64
 	if t, ok := transcript.ParseResetTime(msg, now); ok {
 		resets = t.Unix()
 	}
 
-	rec, err := usage.Load(p, from.Name)
-	if err != nil {
-		rec = usage.Record{Account: from.Name}
-	}
-	rec.Limit = &usage.LimitHit{Message: msg, ResetsAt: resets, ObservedAt: now.Unix(), SessionID: in.SessionID, Cwd: in.Cwd}
-	_ = usage.Save(p, rec)
+	_ = usage.SetLimit(p, from.Name, usage.LimitHit{Message: msg, ResetsAt: resets, ObservedAt: now.Unix(), SessionID: in.SessionID, Cwd: in.Cwd})
 
-	records := map[string]usage.Record{}
-	for _, a := range reg.Accounts {
-		if r, err := usage.Load(p, a.Name); err == nil {
-			records[a.Name] = r
-		}
-	}
+	records, _ := loadRecords(p, reg)
 	to, _ := usage.Recommend(reg, records, from.Name, now)
 	_ = spawnHandoff([]string{
 		"--from", from.Name, "--to", to, "--session", in.SessionID, "--cwd", in.Cwd,
