@@ -38,3 +38,10 @@ func (p Paths) OverridesFile() string { return filepath.Join(p.StateDir, "share-
 func (p Paths) BackupsDir() string    { return filepath.Join(p.StateDir, "backups") }
 func (p Paths) ShimDir() string       { return filepath.Join(p.StateDir, "bin") }
 func (p Paths) Zshrc() string         { return filepath.Join(p.Home, ".zshrc") }
+func (p Paths) UsageDir() string      { return filepath.Join(p.StateDir, "usage") }
+func (p Paths) ChainFile() string     { return filepath.Join(p.StateDir, "statusline-chain.json") }
+
+// DesktopDataDir is the default Claude Desktop data dir.
+func (p Paths) DesktopDataDir() string {
+	return filepath.Join(p.Home, "Library", "Application Support", "Claude")
+}
