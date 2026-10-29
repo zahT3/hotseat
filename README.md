@@ -43,6 +43,18 @@ hotseat doctor               # report drift, unknown entries, and setup problems
 
 Roll back with every claude session closed (it refuses otherwise, like apply). A rollback puts each file back as it was before the apply. Files that changed since then, such as `history.jsonl` with prompts typed after the apply, are moved into `~/.config/hotseat/backups/<id>/rollback-removed/` rather than overwritten, and rollback prints where each one went. For `.claude.json` only the `mcpServers` key is restored; everything Claude Code changed since stays. If a rollback stops on an error, fix the cause and run it again; it continues where it stopped.
 
+## Usage and limits
+
+```sh
+hotseat statusline install  # adds a status line to every claude session; keeps yours, shown first
+hotseat hook install        # registers a StopFailure hook for rate limits
+hotseat usage               # 5-hour and 7-day usage, reset times and data age per account
+```
+
+The status line shows `claude2 · 5h 16% · 7d 12%` and records those numbers. They come only from what Claude Code hands to the status line and from Claude Desktop's local usage history, so an account you have not used for a while shows its last known numbers and how old they are; a window whose reset time has passed shows 0%.
+
+When a CLI session stops on a usage limit, the hook records it and opens a dialog offering to continue the same session as the account with the most quota left. Nothing switches unless you click Continue; then that account becomes current and a new Terminal window runs `claude --resume <session>`. Don't keep typing in the old window afterwards. The first message on the new account reads the whole conversation again without cache, and the dialog says roughly how big that is.
+
 MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
 
 Every command accepts `--json` for scripts and the upcoming menu bar app.
