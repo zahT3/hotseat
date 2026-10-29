@@ -1,5 +1,7 @@
 # Roster CLI 核心 Implementation Plan
 
+> 2026-10-29 起项目改名为 **Hotseat**：文中的 Roster / `roster` 即 Hotseat / `hotseat`，状态目录 `~/.config/roster` 即 `~/.config/hotseat`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 用一个 Go 命令行程序 `roster`，把用户手工搭的多账号 CLI 配置自动化：收编现有账号、共享"工作"数据、切换"当前账号"、`claude` 包装命令、`doctor` 自检、新增账号。
