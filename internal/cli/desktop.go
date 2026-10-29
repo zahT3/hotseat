@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -11,6 +13,8 @@ import (
 	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/paths"
 )
+
+var desktopDriver desktop.Driver = desktop.MacDriver{}
 
 func cmdDesktop(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	pos := positional(args)
@@ -21,6 +25,8 @@ func cmdDesktop(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	switch pos[0] {
 	case "status":
 		return cmdDesktopStatus(p, args, stdout, stderr)
+	case "adopt":
+		return cmdDesktopAdopt(p, pos[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "hotseat: unknown desktop command %q\n", pos[0])
 		return 1
@@ -114,4 +120,98 @@ func cmdDesktopStatus(p paths.Paths, args []string, stdout, stderr io.Writer) in
 	}
 	tw.Flush()
 	return code
+}
+
+// desktopIdle errors unless every Claude Desktop process has exited.
+func desktopIdle(p paths.Paths) error {
+	procs, err := desktopDriver.Procs()
+	if err != nil {
+		return err
+	}
+	if left := desktop.Running(procs, p.Home); len(left) > 0 {
+		return fmt.Errorf("Claude Desktop is running (pid %d); quit it first", left[0].PID)
+	}
+	return nil
+}
+
+func accountByUUID(reg account.Registry, uuid string) (account.Account, bool) {
+	for _, a := range reg.Accounts {
+		if a.AccountUUID == uuid && uuid != "" {
+			return a, true
+		}
+	}
+	return account.Account{}, false
+}
+
+// cmdDesktopAdopt starts managing Desktop data that already exists: with no
+// arguments the data at the real path, or `<account> <dir>` to park a data
+// dir that was logged in elsewhere (e.g. with --user-data-dir).
+func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	reg, err := account.LoadRegistry(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	s, err := desktop.LoadState(p)
+	if err != nil {
+		return fail(stderr, err)
+	}
+	switch len(args) {
+	case 0:
+		uuid, err := desktop.AccountUUID(p.DesktopDataDir())
+		if err != nil {
+			return fail(stderr, err)
+		}
+		a, ok := accountByUUID(reg, uuid)
+		if !ok {
+			return fail(stderr, fmt.Errorf("Claude Desktop is logged in to account %q, which is not registered; run hotseat init or hotseat add first", uuid))
+		}
+		if s.Active != "" && s.Active != a.Name {
+			return fail(stderr, fmt.Errorf("Desktop is already managed with %s active", s.Active))
+		}
+		s.Active = a.Name
+		s.Profiles[a.Name] = uuid
+		if err := desktop.SaveState(p, s); err != nil {
+			return fail(stderr, err)
+		}
+		fmt.Fprintf(stdout, "Claude Desktop data at %s is now managed as %s\n", tildePath(p, p.DesktopDataDir()), a.Name)
+		return 0
+	case 2:
+		name, dir := args[0], args[1]
+		a, ok := reg.Find(name)
+		if !ok {
+			return fail(stderr, fmt.Errorf("unknown account %q", name))
+		}
+		if name == s.Active {
+			return fail(stderr, fmt.Errorf("%s is the active Desktop account already", name))
+		}
+		if err := desktopIdle(p); err != nil {
+			return fail(stderr, err)
+		}
+		uuid, err := desktop.AccountUUID(dir)
+		if err != nil {
+			return fail(stderr, err)
+		}
+		if uuid != a.AccountUUID {
+			return fail(stderr, fmt.Errorf("%s is logged in to %q, not to %s (%s); not adopted", dir, uuid, name, a.AccountUUID))
+		}
+		target := p.DesktopProfileDir(name)
+		if dirExists(target) {
+			return fail(stderr, fmt.Errorf("%s already has Desktop data at %s", name, target))
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return fail(stderr, err)
+		}
+		if err := os.Rename(dir, target); err != nil {
+			return fail(stderr, err)
+		}
+		s.Profiles[name] = uuid
+		if err := desktop.SaveState(p, s); err != nil {
+			return fail(stderr, err)
+		}
+		fmt.Fprintf(stdout, "moved %s to %s; it is %s's Desktop data now\n", dir, tildePath(p, target), name)
+		return 0
+	default:
+		fmt.Fprintln(stderr, "usage: hotseat desktop adopt [<account> <data-dir>]")
+		return 1
+	}
 }

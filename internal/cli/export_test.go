@@ -4,6 +4,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/handoff"
 )
 
@@ -40,4 +41,11 @@ func SetSelfCommand(cmd string) func() {
 	old := selfCommand
 	selfCommand = func() (string, error) { return cmd, nil }
 	return func() { selfCommand = old }
+}
+
+// SetDesktopDriver replaces the real Claude Desktop driver.
+func SetDesktopDriver(d desktop.Driver) func() {
+	old := desktopDriver
+	desktopDriver = d
+	return func() { desktopDriver = old }
 }
