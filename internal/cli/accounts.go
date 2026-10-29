@@ -76,6 +76,18 @@ func hasFlag(args []string, flag string) bool {
 	return false
 }
 
+// positional drops the --json and --force flags so commands can read their
+// arguments in any order.
+func positional(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if a != "--json" && a != "--force" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 func fail(stderr io.Writer, err error) int {
 	fmt.Fprintf(stderr, "hotseat: %v\n", err)
 	return 1

@@ -76,7 +76,7 @@ func Check(p paths.Paths, reg account.Registry, env []string) ([]Finding, error)
 		case share.Conflict:
 			add("error", "shared-conflict", act.Account, act.Path, act.Item+": "+act.Detail+"; resolve by hand")
 		case share.SyncMCP:
-			add("warn", "mcp-diverged", "", "", "MCP servers differ between accounts ("+act.Detail+"); run hotseat share apply")
+			add("warn", "mcp-diverged", "", "", "MCP servers differ between accounts ("+act.Detail+"); hotseat share apply syncs them as a union: every account gets every server, so a server removed from only one account comes back")
 		}
 	}
 

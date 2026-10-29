@@ -116,6 +116,13 @@ func planItem(p paths.Paths, a account.Account, item, pending string) (*Action, 
 	}
 	acctExists := acctErr == nil
 
+	if coreL, err := os.Lstat(core); err == nil && coreL.Mode()&os.ModeSymlink != 0 &&
+		acctExists && acctInfo.Mode()&os.ModeSymlink == 0 && sameTarget(core, acct) {
+		act.Kind = Conflict
+		act.Detail = "the shared copy is a symlink into this account dir; make it a real dir first"
+		return act, nil
+	}
+
 	switch {
 	case !acctExists && !coreExists:
 		return nil, nil

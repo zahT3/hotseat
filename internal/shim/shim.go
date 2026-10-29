@@ -16,7 +16,12 @@ import (
 	"github.com/zahT3/hotseat/internal/paths"
 )
 
-const envKey = "CLAUDE_CONFIG_DIR"
+const (
+	envKey = "CLAUDE_CONFIG_DIR"
+	// loopKey holds the binary the shim last exec'd. If a process finds
+	// itself named there, the shim picked a copy of itself as "real claude".
+	loopKey = "HOTSEAT_SHIM_EXEC"
+)
 
 var (
 	execFn           = syscall.Exec
@@ -35,6 +40,11 @@ func ResolveEnv(env []string, reg account.Registry, current string) ([]string, s
 	if !ok {
 		return env, fmt.Sprintf("hotseat: current account %q not found; starting claude unchanged", current)
 	}
+	if !a.IsDefault {
+		if info, err := os.Stat(a.ConfigDir); err != nil || !info.IsDir() {
+			return env, fmt.Sprintf("hotseat: config dir %s of current account %q does not exist; starting claude unchanged", a.ConfigDir, current)
+		}
+	}
 	out := without(env, envKey)
 	// The default account must run with CLAUDE_CONFIG_DIR unset: the keychain
 	// entry is keyed by config dir, so setting it to ~/.claude could read a
@@ -48,6 +58,7 @@ func ResolveEnv(env []string, reg account.Registry, current string) ([]string, s
 func FindRealClaude(pathEnv, self, shimDir string) (string, error) {
 	selfResolved := resolve(self)
 	shimResolved := resolve(shimDir)
+	selfInfo, _ := os.Stat(self)
 	for _, dir := range filepath.SplitList(pathEnv) {
 		if dir == "" {
 			continue
@@ -60,7 +71,7 @@ func FindRealClaude(pathEnv, self, shimDir string) (string, error) {
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 			continue
 		}
-		if resolve(candidate) == selfResolved {
+		if resolve(candidate) == selfResolved || (selfInfo != nil && os.SameFile(info, selfInfo)) {
 			continue
 		}
 		return candidate, nil
@@ -69,6 +80,12 @@ func FindRealClaude(pathEnv, self, shimDir string) (string, error) {
 }
 
 func Run(args []string) {
+	self, _ := os.Executable()
+	if prev := os.Getenv(loopKey); prev != "" && sameFile(prev, self) {
+		fmt.Fprintf(stderr, "hotseat: exec loop: %s is a copy of the shim, not the real claude; remove it from PATH\n", prev)
+		exit(127)
+		return
+	}
 	env := os.Environ()
 	warning := ""
 	if p, err := paths.FromEnv(); err != nil {
@@ -84,7 +101,6 @@ func Run(args []string) {
 		fmt.Fprintln(stderr, warning)
 	}
 
-	self, _ := os.Executable()
 	shimDir := ""
 	if p, err := paths.FromEnv(); err == nil {
 		shimDir = p.ShimDir()
@@ -95,10 +111,17 @@ func Run(args []string) {
 		exit(127)
 		return
 	}
+	env = append(without(env, loopKey), loopKey+"="+real)
 	if err := execFn(real, args, env); err != nil {
 		fmt.Fprintf(stderr, "hotseat: exec %s: %v\n", real, err)
 		exit(126)
 	}
+}
+
+func sameFile(a, b string) bool {
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
 }
 
 func resolve(path string) string {

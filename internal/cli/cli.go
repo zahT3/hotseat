@@ -29,6 +29,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if args[0] == "version" {
+		if hasFlag(args, "--json") {
+			return writeJSON(stdout, stderr, map[string]string{"version": Version})
+		}
 		fmt.Fprintf(stdout, "hotseat %s\n", Version)
 		return 0
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
@@ -84,6 +85,9 @@ func checkRunning(force bool, running func() ([]int, error)) error {
 func Apply(p paths.Paths, reg account.Registry, pl Plan, opts ApplyOptions) (Manifest, error) {
 	if err := checkRunning(opts.Force, opts.Running); err != nil {
 		return Manifest{}, err
+	}
+	if len(pl.Actions) == pl.Conflicts() {
+		return Manifest{Steps: []Step{}}, nil
 	}
 	id, dir, err := newBackupDir(p)
 	if err != nil {
@@ -207,7 +211,7 @@ func mergeJSONLStep(j *journal, idx, i int) error {
 	if err := j.record(idx, func(s *Step) { s.CoreBackupPath = coreBackup }); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(a.Target, mergeJSONL(coreBytes, acctBytes), info.Mode().Perm()); err != nil {
+	if err := writeFileAtomic(throughLink(a.Target), mergeJSONL(coreBytes, acctBytes), info.Mode().Perm()); err != nil {
 		j.record(idx, func(s *Step) { s.CoreBackupPath = "" })
 		return err
 	}
@@ -274,6 +278,11 @@ func Rollback(p paths.Paths, id string, opts RollbackOptions) ([]string, error) 
 	}
 	if m.RolledBack {
 		return nil, fmt.Errorf("backup %s was already rolled back", id)
+	}
+	if newer, err := newerApplied(p, id); err != nil {
+		return nil, err
+	} else if len(newer) > 0 {
+		return nil, fmt.Errorf("roll back the newer backups first: %s", strings.Join(newer, ", "))
 	}
 	j := &journal{dir: dir, m: m}
 	var moved []string
@@ -351,14 +360,15 @@ func undoStep(j *journal, i int) ([]string, error) {
 	}
 	if s.CoreBackupPath != "" {
 		if exists(s.CoreBackupPath) {
-			if exists(a.Target) {
-				dest, err := moveAside(j.dir, fmt.Sprintf("%d-core", i), a.Target)
+			target := throughLink(a.Target)
+			if exists(target) {
+				dest, err := moveAside(j.dir, fmt.Sprintf("%d-core", i), target)
 				if err != nil {
 					return moved, err
 				}
 				moved = append(moved, dest)
 			}
-			if err := os.Rename(s.CoreBackupPath, a.Target); err != nil {
+			if err := os.Rename(s.CoreBackupPath, target); err != nil {
 				return moved, err
 			}
 		}
@@ -406,6 +416,40 @@ func restoreServers(backup, file string) error {
 		return err
 	}
 	return writeServers(file, servers, info.Mode().Perm())
+}
+
+// throughLink returns the file a symlink points at, so writes keep a
+// symlinked shared file (e.g. a synced history.jsonl) a symlink.
+func throughLink(path string) string {
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if r, err := filepath.EvalSymlinks(path); err == nil {
+			return r
+		}
+	}
+	return path
+}
+
+// newerApplied lists backups newer than id that changed something and were
+// not rolled back; undoing an older apply under them would mix states.
+func newerApplied(p paths.Paths, id string) ([]string, error) {
+	ids, err := ListBackups(p)
+	if err != nil {
+		return nil, err
+	}
+	var newer []string
+	for _, other := range ids {
+		if other <= id {
+			continue
+		}
+		m, err := LoadManifest(p, other)
+		if err != nil {
+			return nil, err
+		}
+		if !m.RolledBack && len(m.Steps) > 0 {
+			newer = append(newer, other)
+		}
+	}
+	return newer, nil
 }
 
 func exists(path string) bool {

@@ -32,6 +32,10 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
+	if hasFlag(args, "--json") {
+		cur, _ := account.CurrentName(p)
+		return writeJSON(stdout, stderr, map[string]any{"current": cur, "accounts": reg.Accounts})
+	}
 	fmt.Fprintf(stdout, "registered %d account(s)\n", len(reg.Accounts))
 	printAccounts(p, reg, stdout)
 	fmt.Fprintln(stdout, "next: hotseat share plan")

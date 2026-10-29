@@ -15,8 +15,7 @@ var aliasRe = regexp.MustCompile(`(?m)^\s*alias\s+([A-Za-z0-9_.-]+)=['"]?CLAUDE_
 
 // ParseAliases maps absolute config dirs to the shell alias that launches
 // claude with them, e.g. alias claude2='CLAUDE_CONFIG_DIR="$HOME/.claude2" claude'.
-func ParseAliases(zshrc string) map[string]string {
-	home := os.Getenv("HOME")
+func ParseAliases(zshrc, home string) map[string]string {
 	out := map[string]string{}
 	for _, m := range aliasRe.FindAllStringSubmatch(zshrc, -1) {
 		dir := m[2]
@@ -42,7 +41,7 @@ func Discover(p paths.Paths) ([]Account, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	aliases := ParseAliases(string(zshrc))
+	aliases := ParseAliases(string(zshrc), p.Home)
 
 	entries, err := os.ReadDir(p.Home)
 	if err != nil {

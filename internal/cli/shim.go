@@ -18,6 +18,8 @@ const (
 )
 
 func cmdShim(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	jsonOut := hasFlag(args, "--json")
+	args = positional(args)
 	if len(args) != 1 || (args[0] != "install" && args[0] != "uninstall") {
 		fmt.Fprintln(stderr, "usage: hotseat shim install|uninstall")
 		return 1
@@ -26,11 +28,17 @@ func cmdShim(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		if err := shimInstall(p); err != nil {
 			return fail(stderr, err)
 		}
+		if jsonOut {
+			return writeJSON(stdout, stderr, map[string]string{"shim": filepath.Join(p.ShimDir(), "claude"), "zshrc": p.Zshrc()})
+		}
 		fmt.Fprintf(stdout, "installed %s; open a new terminal so `claude` follows the current account\n", tildePath(p, filepath.Join(p.ShimDir(), "claude")))
 		return 0
 	}
 	if err := shimUninstall(p); err != nil {
 		return fail(stderr, err)
+	}
+	if jsonOut {
+		return writeJSON(stdout, stderr, map[string]bool{"removed": true})
 	}
 	fmt.Fprintln(stdout, "removed the claude shim; open a new terminal")
 	return 0
@@ -121,11 +129,31 @@ func readZshrc(p paths.Paths) (string, error) {
 // writeZshrc writes through a symlinked ~/.zshrc (dotfile managers) instead
 // of replacing the link with a file.
 func writeZshrc(p paths.Paths, content string) error {
+	target := p.Zshrc()
+	if r, err := filepath.EvalSymlinks(target); err == nil {
+		target = r
+	}
 	perm := os.FileMode(0o644)
-	if info, err := os.Stat(p.Zshrc()); err == nil {
+	if info, err := os.Stat(target); err == nil {
 		perm = info.Mode().Perm()
 	}
-	return os.WriteFile(p.Zshrc(), []byte(content), perm)
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".zshrc.hotseat-tmp*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), target)
 }
 
 func backupZshrc(p paths.Paths, content string) error {

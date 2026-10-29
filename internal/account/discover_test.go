@@ -9,7 +9,7 @@ import (
 )
 
 func TestParseAliases(t *testing.T) {
-	t.Setenv("HOME", "/Users/u")
+	t.Setenv("HOME", "/somewhere/else")
 	zshrc := `export PATH=/x:$PATH
 alias claude2='CLAUDE_CONFIG_DIR="$HOME/.claude2" claude'
 alias claude3="CLAUDE_CONFIG_DIR=${HOME}/.claude3 claude"
@@ -17,7 +17,7 @@ alias c4=CLAUDE_CONFIG_DIR=~/.claude4\ claude
 alias work=CLAUDE_CONFIG_DIR=~/.claude-work\ claude
 alias ll='ls -l'
 `
-	got := account.ParseAliases(zshrc)
+	got := account.ParseAliases(zshrc, "/Users/u")
 	if got["/Users/u/.claude2"] != "claude2" {
 		t.Errorf(".claude2 -> %q", got["/Users/u/.claude2"])
 	}

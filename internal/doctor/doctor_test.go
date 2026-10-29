@@ -152,6 +152,16 @@ func TestDoctorMCPDiverged(t *testing.T) {
 	}
 }
 
+func TestDoctorMCPMessageExplainsUnion(t *testing.T) {
+	f, env := cleanSetup(t)
+	testutil.AddAccountDir(t, f.p, f.acct, "b2", "o2", map[string]any{"x": map[string]any{}})
+	for _, x := range check(t, f, env) {
+		if x.Code == "mcp-diverged" && !strings.Contains(x.Message, "union") {
+			t.Errorf("message does not explain the sync rule: %q", x.Message)
+		}
+	}
+}
+
 func TestDoctorUnknownEntry(t *testing.T) {
 	f, env := cleanSetup(t)
 	testutil.WriteFile(t, filepath.Join(f.acct, "scheduled-tasks", "x.json"), "{}")

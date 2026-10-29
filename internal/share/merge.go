@@ -74,6 +74,11 @@ func mergeTree(src, dst string, onAdd func(added string) error) (conflicts []str
 		if dErr != nil {
 			return conflicts, dErr
 		}
+		// An account entry that already links to the shared one is the
+		// same content.
+		if sameTarget(s, d) {
+			continue
+		}
 		sInfo, err := os.Lstat(s)
 		if err != nil {
 			return conflicts, err

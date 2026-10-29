@@ -9,6 +9,8 @@ import (
 )
 
 func cmdUse(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	jsonOut := hasFlag(args, "--json")
+	args = positional(args)
 	if len(args) != 1 {
 		fmt.Fprintln(stderr, "usage: hotseat use <account>")
 		return 1
@@ -24,6 +26,9 @@ func cmdUse(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if err := account.SetCurrent(p, args[0]); err != nil {
 		return fail(stderr, err)
 	}
+	if jsonOut {
+		return writeJSON(stdout, stderr, map[string]string{"current": args[0]})
+	}
 	fmt.Fprintf(stdout, "current account: %s (new claude sessions use it; running ones keep theirs)\n", args[0])
 	return 0
 }
@@ -32,6 +37,9 @@ func cmdCurrent(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	cur, err := account.CurrentName(p)
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if hasFlag(args, "--json") {
+		return writeJSON(stdout, stderr, map[string]string{"current": cur})
 	}
 	fmt.Fprintln(stdout, cur)
 	return 0

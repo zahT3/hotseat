@@ -43,6 +43,10 @@ hotseat doctor               # report drift, unknown entries, and setup problems
 
 Roll back with every claude session closed (it refuses otherwise, like apply). A rollback puts each file back as it was before the apply. Files that changed since then, such as `history.jsonl` with prompts typed after the apply, are moved into `~/.config/hotseat/backups/<id>/rollback-removed/` rather than overwritten, and rollback prints where each one went. For `.claude.json` only the `mcpServers` key is restored; everything Claude Code changed since stays. If a rollback stops on an error, fix the cause and run it again; it continues where it stopped.
 
+MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
+
+Every command accepts `--json` for scripts and the upcoming menu bar app.
+
 Entries Hotseat does not recognise are left alone and reported by `hotseat doctor`. Classify one with `hotseat share set <name> shared|local`. `plugins/` and `sessions/` stay per account for now.
 
 ## Files

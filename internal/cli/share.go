@@ -35,12 +35,17 @@ func cmdShare(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 }
 
 func cmdShareSet(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+	jsonOut := hasFlag(args, "--json")
+	args = positional(args)
 	if len(args) != 2 {
 		fmt.Fprintln(stderr, "usage: hotseat share set <item> shared|local")
 		return 1
 	}
 	if err := share.SetOverride(p, args[0], share.Class(args[1])); err != nil {
 		return fail(stderr, err)
+	}
+	if jsonOut {
+		return writeJSON(stdout, stderr, map[string]string{"item": args[0], "class": args[1]})
 	}
 	fmt.Fprintf(stdout, "%s is now %s\n", args[0], args[1])
 	return 0
@@ -107,6 +112,10 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if hasFlag(args, "--json") {
 		return writeJSON(stdout, stderr, m)
 	}
+	if m.ID == "" {
+		fmt.Fprintf(stdout, "nothing to do; %d conflicts need you (see hotseat doctor)\n", pl.Conflicts())
+		return 0
+	}
 	for _, s := range m.Steps {
 		fmt.Fprintf(stdout, "done  %s %s %s\n", s.Action.Account, s.Action.Item, s.Action.Kind)
 		for _, c := range s.Conflicts {
@@ -123,18 +132,19 @@ func cmdShareApply(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 
 func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	var id string
-	for _, a := range args {
-		if a != "--force" {
-			id = a
-		}
+	if pos := positional(args); len(pos) == 1 {
+		id = pos[0]
 	}
 	if id == "" {
 		fmt.Fprintln(stderr, "usage: hotseat share rollback <backup-id> [--force]   (list ids with: hotseat share backups)")
 		return 1
 	}
 	moved, err := share.Rollback(p, id, share.RollbackOptions{Force: hasFlag(args, "--force")})
+	jsonOut := hasFlag(args, "--json")
 	for _, m := range moved {
-		fmt.Fprintf(stdout, "changed since the apply, moved aside (not deleted): %s\n", tildePath(p, m))
+		if !jsonOut {
+			fmt.Fprintf(stdout, "changed since the apply, moved aside (not deleted): %s\n", tildePath(p, m))
+		}
 	}
 	if errors.Is(err, share.ErrClaudeRunning) {
 		fmt.Fprintf(stderr, "hotseat: %v\nclose every claude session (CLI and Desktop) and retry, or pass --force\n", err)
@@ -142,6 +152,12 @@ func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) in
 	}
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if jsonOut {
+		if moved == nil {
+			moved = []string{}
+		}
+		return writeJSON(stdout, stderr, map[string]any{"id": id, "movedAside": moved})
 	}
 	fmt.Fprintf(stdout, "rolled back %s\n", id)
 	return 0
@@ -151,6 +167,22 @@ func cmdShareBackups(p paths.Paths, args []string, stdout, stderr io.Writer) int
 	ids, err := share.ListBackups(p)
 	if err != nil {
 		return fail(stderr, err)
+	}
+	if hasFlag(args, "--json") {
+		type backup struct {
+			ID         string `json:"id"`
+			Steps      int    `json:"steps"`
+			RolledBack bool   `json:"rolledBack"`
+		}
+		list := []backup{}
+		for _, id := range ids {
+			m, err := share.LoadManifest(p, id)
+			if err != nil {
+				return fail(stderr, err)
+			}
+			list = append(list, backup{ID: id, Steps: len(m.Steps), RolledBack: m.RolledBack})
+		}
+		return writeJSON(stdout, stderr, list)
 	}
 	for _, id := range ids {
 		m, err := share.LoadManifest(p, id)

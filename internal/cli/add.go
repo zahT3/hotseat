@@ -19,7 +19,8 @@ import (
 var accountNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 
 func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
-	name, dir, err := parseAddArgs(p, args)
+	jsonOut := hasFlag(args, "--json")
+	name, dir, err := parseAddArgs(p, positional(args))
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -29,6 +30,14 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	}
 	if _, taken := reg.Find(name); taken {
 		return fail(stderr, fmt.Errorf("account %q already exists", name))
+	}
+	if dir == p.CoreDir() {
+		return fail(stderr, fmt.Errorf("%s is already the default account's dir", dir))
+	}
+	for _, a := range reg.Accounts {
+		if filepath.Clean(a.ConfigDir) == dir {
+			return fail(stderr, fmt.Errorf("%s is already used by account %q", dir, a.Name))
+		}
 	}
 	if entries, err := os.ReadDir(dir); err == nil && len(entries) > 0 {
 		return fail(stderr, fmt.Errorf("%s is not empty; pick another --dir", dir))
@@ -47,10 +56,15 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	fmt.Fprintf(stdout, "opening the official Claude login for %s ...\n", dir)
+	// With --json, stdout carries only the result; login chatter goes to stderr.
+	loginOut := stdout
+	if jsonOut {
+		loginOut = stderr
+	}
+	fmt.Fprintf(loginOut, "opening the official Claude login for %s ...\n", dir)
 	login := exec.Command(real, "auth", "login")
 	login.Env = append(withoutEnv(os.Environ(), "CLAUDE_CONFIG_DIR"), "CLAUDE_CONFIG_DIR="+dir)
-	login.Stdin, login.Stdout, login.Stderr = os.Stdin, stdout, stderr
+	login.Stdin, login.Stdout, login.Stderr = os.Stdin, loginOut, stderr
 	_ = login.Run() // a cancelled login shows up as a missing identity below
 
 	a := account.Account{Name: name, ConfigDir: dir}
@@ -74,6 +88,9 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 
 	if err := linkNewAccount(p, reg, name); err != nil {
 		return fail(stderr, err)
+	}
+	if jsonOut {
+		return writeJSON(stdout, stderr, a)
 	}
 	fmt.Fprintf(stdout, "added %s (%s)\n", name, tildePath(p, dir))
 	fmt.Fprintln(stdout, "MCP servers are copied to the new account the next time you run: hotseat share apply")
