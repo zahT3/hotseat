@@ -17,6 +17,8 @@ type SwitchOptions struct {
 	// on the outgoing account) or a Claude Code session UUID.
 	Resume  string
 	Timeout time.Duration
+	// NoLaunch leaves Desktop closed after the swap (it was not running).
+	NoLaunch bool
 }
 
 type SwitchResult struct {
@@ -116,6 +118,9 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 		}
 	}
 
+	if opts.NoLaunch {
+		return res, nil
+	}
 	if resume != "" {
 		res.Resumed = resume
 		return res, d.OpenURL("claude://resume?session=" + resume)
