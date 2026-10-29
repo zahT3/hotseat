@@ -18,7 +18,7 @@ func Recommend(reg account.Registry, records map[string]Record, exclude string, 
 			continue
 		}
 		r := records[a.Name]
-		if limited(r.Limit, now) {
+		if r.Limit.Active(now) {
 			continue
 		}
 		five, _, _ := Effective(r.FiveHour, now)
@@ -31,7 +31,8 @@ func Recommend(reg account.Registry, records map[string]Record, exclude string, 
 	return best, best != ""
 }
 
-func limited(l *LimitHit, now time.Time) bool {
+// Active reports whether the account is still blocked by this limit.
+func (l *LimitHit) Active(now time.Time) bool {
 	if l == nil {
 		return false
 	}
