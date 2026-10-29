@@ -157,6 +157,3 @@ func report(stdout, stderr io.Writer, jsonOut bool, v any, text string) int {
 	fmt.Fprintln(stdout, text)
 	return 0
 }
-
-// cmdStopFailure is filled in with the limit handoff.
-func cmdStopFailure(p paths.Paths, stdout, stderr io.Writer) int { return 0 }
