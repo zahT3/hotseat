@@ -23,6 +23,7 @@ var commands = map[string]command{
 	"shim":       cmdShim,
 	"statusline": cmdStatusline,
 	"hook":       cmdHook,
+	"handoff":    cmdHandoff,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {
