@@ -55,6 +55,26 @@ The status line shows `claude2 · 5h 16% · 7d 12%` and records those numbers. T
 
 When a CLI session stops on a usage limit, the hook records it and opens a dialog offering to continue the same session as the account with the most quota left. Nothing switches unless you click Continue; then that account becomes current and a new Terminal window runs `claude --resume <session>`. Don't keep typing in the old window afterwards. The first message on the new account reads the whole conversation again without cache, and the dialog says roughly how big that is.
 
+## Claude Desktop
+
+Claude Desktop holds one login at a time. Hotseat gives every account its own complete Desktop data dir: the current account's sits at the real path `~/Library/Application Support/Claude`, the others are parked in `~/.config/hotseat/desktop/profiles/<account>/`. Opening Desktop from the Dock, Spotlight or a link, or after an auto-update, therefore always opens the current account.
+
+```sh
+hotseat desktop adopt                     # manage the Desktop data that is there now
+hotseat desktop adopt work ~/path/to/dir  # park a data dir that is logged in to `work`
+hotseat desktop add work                  # empty profile for `work`; log in once in the Desktop that opens
+hotseat desktop switch work --resume current
+hotseat desktop status                    # which profile is where, and whether its login matches
+hotseat desktop recover                   # finish or undo a switch that was interrupted
+hotseat use work --yes                    # CLI and Desktop together
+```
+
+A switch quits Desktop (it waits; it never force-kills), carries Desktop's own work data over to the target profile, swaps the two dirs, and reopens Desktop on the session you were in through Claude's `claude://resume` link. What is carried over: the Code session list (merged across all accounts, newest copy wins, deleted sessions stay deleted), MCP servers and preferences, extensions, session presets and scratch work. What is not: the login (Cookies, `config.json`, Local Storage), which is exactly what makes each profile a different account. Hotseat reads only `lastKnownAccountUuid` from `config.json` to check which account a profile is logged in to.
+
+Without `--yes`, `hotseat use` leaves a running Desktop alone and tells you; a closed Desktop is switched quietly and opens as the new account next time. When a Desktop session hits a usage limit, the dialog offers to switch Desktop to another account and continue that session there.
+
+Hotseat does not use symlinks or `--user-data-dir` for this: symlinked data breaks Cowork's file sharing and recent Desktop versions refuse to save sessions into a symlinked folder, and `--user-data-dir` is lost whenever Desktop relaunches itself after an update.
+
 MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
 
 Every command accepts `--json` for scripts and the upcoming menu bar app.
