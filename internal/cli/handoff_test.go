@@ -7,6 +7,7 @@ import (
 
 	"github.com/zahT3/hotseat/internal/account"
 	"github.com/zahT3/hotseat/internal/cli"
+	"github.com/zahT3/hotseat/internal/paths"
 )
 
 type pressRunner struct {
@@ -17,6 +18,9 @@ type pressRunner struct {
 func (r *pressRunner) Dialog(string, []string, string) (string, error) { return r.press, nil }
 func (r *pressRunner) Notify(string, string) error                     { return nil }
 func (r *pressRunner) OpenTerminal(c string) error                     { r.opened = append(r.opened, c); return nil }
+func (r *pressRunner) SwitchDesktop(paths.Paths, account.Registry, string, string) error {
+	return nil
+}
 
 func TestHandoffCommand(t *testing.T) {
 	p := twoAccounts(t)

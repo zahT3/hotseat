@@ -41,7 +41,7 @@ func cmdStatusline(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 
 	mine := ""
 	if reg, err := account.LoadRegistry(p); err == nil {
-		if a, ok := account.FromEnv(reg, os.Environ()); ok {
+		if a, _, ok := sessionAccount(p, reg, os.Environ()); ok {
 			now := time.Now()
 			_ = usage.ObserveRateLimits(p, a.Name, in.RateLimits, now)
 			mine = ownStatus(p, a.Name, in.RateLimits, now)

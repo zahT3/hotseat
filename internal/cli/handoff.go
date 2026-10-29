@@ -28,6 +28,7 @@ func cmdHandoff(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&r.Message, "message", "", "")
 	fs.IntVar(&r.Tokens, "tokens", 0, "")
 	fs.Int64Var(&r.ResetsAt, "resets", 0, "")
+	fs.BoolVar(&r.Desktop, "desktop", false, "")
 	err := fs.Parse(args)
 	if err == nil {
 		var reg account.Registry

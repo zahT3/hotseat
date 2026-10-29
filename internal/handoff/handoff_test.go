@@ -18,6 +18,7 @@ type fakeRunner struct {
 	dialogText       string
 	buttons          []string
 	opened, notified []string
+	desktopSwitched  []string
 }
 
 func (f *fakeRunner) Dialog(text string, buttons []string, def string) (string, error) {
@@ -30,6 +31,10 @@ func (f *fakeRunner) Notify(title, text string) error {
 }
 func (f *fakeRunner) OpenTerminal(cmd string) error {
 	f.opened = append(f.opened, cmd)
+	return nil
+}
+func (f *fakeRunner) SwitchDesktop(p paths.Paths, reg account.Registry, to, session string) error {
+	f.desktopSwitched = append(f.desktopSwitched, to+" "+session)
 	return nil
 }
 
@@ -142,5 +147,24 @@ func TestOfferNamesProject(t *testing.T) {
 	handoff.Offer(p, reg, r, f)
 	if !strings.Contains(f.dialogText, "projX") {
 		t.Errorf("dialog does not name the project:\n%s", f.dialogText)
+	}
+}
+
+func TestOfferDesktopSwitchRunsSwitch(t *testing.T) {
+	p, reg := setup(t)
+	r := req
+	r.Desktop = true
+	f := &fakeRunner{press: "Switch Desktop to claude"}
+	if err := handoff.Offer(p, reg, r, f); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.desktopSwitched) != 1 || f.desktopSwitched[0] != "claude s1" || len(f.opened) != 0 {
+		t.Errorf("switched %v opened %v", f.desktopSwitched, f.opened)
+	}
+	if cur, _ := account.CurrentName(p); cur != "claude" {
+		t.Errorf("current = %q", cur)
+	}
+	if !strings.Contains(f.dialogText, "Desktop") {
+		t.Errorf("dialog text: %s", f.dialogText)
 	}
 }

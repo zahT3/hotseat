@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/paths"
 	"github.com/zahT3/hotseat/internal/transcript"
 	"github.com/zahT3/hotseat/internal/usage"
@@ -58,7 +59,7 @@ func cmdStopFailure(p paths.Paths, stdout, stderr io.Writer) int {
 	if err != nil {
 		return 0
 	}
-	from, ok := account.FromEnv(reg, os.Environ())
+	from, isDesktop, ok := sessionAccount(p, reg, os.Environ())
 	if !ok {
 		return 0
 	}
@@ -89,11 +90,34 @@ func cmdStopFailure(p paths.Paths, stdout, stderr io.Writer) int {
 	_ = usage.SetLimit(p, from.Name, usage.LimitHit{Message: msg, ResetsAt: resets, ObservedAt: now.Unix(), SessionID: in.SessionID, Cwd: in.Cwd})
 
 	records, _ := loadRecords(p, reg)
-	to, _ := usage.Recommend(reg, records, from.Name, now)
-	_ = spawnHandoff([]string{
+	candidates := reg
+	if isDesktop {
+		// Desktop can only switch to accounts that have Desktop data.
+		candidates = desktopAccounts(p, reg)
+	}
+	to, _ := usage.Recommend(candidates, records, from.Name, now)
+	args := []string{
 		"--from", from.Name, "--to", to, "--session", in.SessionID, "--cwd", in.Cwd,
 		"--tokens", strconv.Itoa(transcript.ContextTokens(in.TranscriptPath)),
 		"--resets", strconv.FormatInt(resets, 10), "--message", msg,
-	})
+	}
+	if isDesktop {
+		args = append(args, "--desktop")
+	}
+	_ = spawnHandoff(args)
 	return 0
+}
+
+func desktopAccounts(p paths.Paths, reg account.Registry) account.Registry {
+	s, err := desktop.LoadState(p)
+	if err != nil {
+		return account.Registry{}
+	}
+	var out account.Registry
+	for _, a := range reg.Accounts {
+		if _, ok := s.Profiles[a.Name]; ok {
+			out.Accounts = append(out.Accounts, a)
+		}
+	}
+	return out
 }

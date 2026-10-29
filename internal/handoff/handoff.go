@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/paths"
 	"github.com/zahT3/hotseat/internal/shellq"
 )
@@ -20,6 +21,9 @@ type Request struct {
 	From, To, SessionID, Cwd, Message string
 	Tokens                            int
 	ResetsAt                          int64
+	// Desktop marks a session running in Claude Desktop: continuing it means
+	// switching Desktop's account, not opening a terminal.
+	Desktop bool
 }
 
 type Runner interface {
@@ -27,6 +31,7 @@ type Runner interface {
 	Dialog(text string, buttons []string, defaultButton string) (string, error)
 	Notify(title, text string) error
 	OpenTerminal(command string) error
+	SwitchDesktop(p paths.Paths, reg account.Registry, to, sessionID string) error
 }
 
 func Offer(p paths.Paths, reg account.Registry, r Request, run Runner) error {
@@ -41,19 +46,27 @@ func Offer(p paths.Paths, reg account.Registry, r Request, run Runner) error {
 	if !ok {
 		return fmt.Errorf("account %q is not registered", r.To)
 	}
-	cont := "Continue as " + r.To
 	project := "this session"
 	if r.Cwd != "" {
 		project = filepath.Base(r.Cwd)
 	}
-	text := fmt.Sprintf("%s hit its usage limit in %s (resets %s).\n\nContinue this session as %s?\n\nContext is about %dk tokens; the first message on %s reads it again without cache.\n\nDo not keep typing in the old window.",
-		r.From, project, resets, r.To, (r.Tokens+500)/1000, r.To)
+	cont := "Continue as " + r.To
+	how := "Do not keep typing in the old window."
+	if r.Desktop {
+		cont = "Switch Desktop to " + r.To
+		how = "Claude Desktop will quit and reopen as " + r.To + " on this session."
+	}
+	text := fmt.Sprintf("%s hit its usage limit in %s (resets %s).\n\nContinue this session as %s?\n\nContext is about %dk tokens; the first message on %s reads it again without cache.\n\n%s",
+		r.From, project, resets, r.To, (r.Tokens+500)/1000, r.To, how)
 	pressed, err := run.Dialog(text, []string{"Not now", cont}, cont)
 	if err != nil || pressed != cont {
 		return err
 	}
 	if err := account.SetCurrent(p, r.To); err != nil {
 		return err
+	}
+	if r.Desktop {
+		return run.SwitchDesktop(p, reg, r.To, r.SessionID)
 	}
 	return run.OpenTerminal(ResumeCommand(to, r.Cwd, r.SessionID))
 }
@@ -103,6 +116,11 @@ func (OSA) Dialog(text string, buttons []string, def string) (string, error) {
 func (OSA) Notify(title, text string) error {
 	return exec.Command("osascript", "-e",
 		fmt.Sprintf("display notification %s with title %s", AppleScriptString(text), AppleScriptString(title))).Run()
+}
+
+func (OSA) SwitchDesktop(p paths.Paths, reg account.Registry, to, sessionID string) error {
+	_, err := desktop.Switch(p, reg, desktop.MacDriver{}, to, desktop.SwitchOptions{Resume: sessionID, Timeout: 20 * time.Second})
+	return err
 }
 
 func (OSA) OpenTerminal(command string) error {
