@@ -2,7 +2,7 @@
 
 Use several personal Claude accounts on one Mac without your work changing when you switch. Accounts are pluggable; sessions, settings, skills and history stay in one place.
 
-Status: early. macOS only. This first part covers the Claude Code CLI. Desktop support and a menu bar app come later.
+Status: early. macOS only. Covers the Claude Code CLI, Claude Desktop and a menu bar app.
 
 ## How it works
 
@@ -79,9 +79,21 @@ Hotseat does not use symlinks or `--user-data-dir` for this: symlinked data brea
 
 MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
 
-Every command accepts `--json` for scripts and the upcoming menu bar app.
+Every command accepts `--json` for scripts and the menu bar app.
 
 Entries Hotseat does not recognise are left alone and reported by `hotseat doctor`. Classify one with `hotseat share set <name> shared|local`. `plugins/` and `sessions/` stay per account for now.
+
+## Menu bar app
+
+`macos/` holds a small menu bar app. It shows every account's 5-hour and 7-day usage, when each resets, how old that data is, which account is current and which one Claude Desktop is on. Click an account to switch to it (the same as `hotseat use <account> --yes`). If Desktop is running and has to restart, it asks first.
+
+```sh
+macos/build-app.sh            # builds and ad-hoc signs macos/build/Hotseat.app
+macos/build-app.sh --install  # also replaces ~/Applications/Hotseat.app and opens it
+macos/test.sh                 # Swift tests
+```
+
+The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu.
 
 ## Files
 
