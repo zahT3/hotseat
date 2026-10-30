@@ -81,6 +81,22 @@ public struct HotseatCLI: Sendable {
         _ = try await run(["desktop", "add", account, "--yes"], timeout: .seconds(120))
     }
 
+    /// Moves only new terminal sessions to `account`; Desktop stays.
+    public func useCLIOnly(_ account: String) async throws {
+        _ = try await run(["use", account, "--cli-only", "--json"], timeout: .seconds(30))
+    }
+
+    /// Moves only Claude Desktop to `account`, reopening the session that
+    /// was focused (quits a running Desktop first).
+    public func switchDesktop(_ account: String) async throws {
+        _ = try await run(["desktop", "switch", account, "--resume", "current", "--json"], timeout: .seconds(120))
+    }
+
+    /// Signs `account` out and moves its files into a Hotseat backup.
+    public func remove(_ account: String) async throws {
+        _ = try await run(["remove", account, "--yes", "--json"], timeout: .seconds(60))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)

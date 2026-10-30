@@ -5,6 +5,7 @@ struct SettingsActions {
     let saveNote: (String, String) -> Void
     let addAccount: () -> Void
     let setUpDesktop: (String) -> Void
+    let remove: (String) -> Void
     let setLaunchAtLogin: (Bool) -> Void
     let setAskBeforeDesktopRestart: (Bool) -> Void
 }
@@ -85,6 +86,12 @@ struct AccountSettingsRow: View {
                     row("Email", info.email ?? "—")
                     row("Account", info.account)
                     row("Config", (info.configDir ?? "—").replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    if let problem = info.loginProblem, !problem.isEmpty {
+                        GridRow {
+                            Text("Login").foregroundStyle(.secondary)
+                            Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                        }
+                    }
                     GridRow {
                         Text("Desktop").foregroundStyle(.secondary)
                         HStack(spacing: 8) {
@@ -99,13 +106,30 @@ struct AccountSettingsRow: View {
                 .font(.system(size: 12))
             }
             Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 4) {
-                if info.current { Badge(text: "CLI", color: .accentColor) }
-                if info.desktop == "active" { Badge(text: "Desktop", color: .accentColor) }
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 4) {
+                    if info.current { Badge(text: "CLI", color: .accentColor) }
+                    if info.desktop == "active" { Badge(text: "Desktop", color: .accentColor) }
+                }
+                Button(role: .destructive) { actions.remove(info.account) } label: {
+                    Label("Remove…", systemImage: "trash")
+                }
+                .controlSize(.small)
+                .disabled(removeBlocker != nil)
+                .help(removeBlocker ?? "Sign this account out and move its files into a Hotseat backup")
             }
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+    }
+
+    private var removeBlocker: String? {
+        if info.configDir == NSHomeDirectory() + "/.claude" {
+            return "The default account holds every account's shared work data"
+        }
+        if info.current { return "Switch the CLI to another account first" }
+        if info.desktop == "active" { return "Switch Claude Desktop to another account first" }
+        return nil
     }
 
     private var desktopText: String {

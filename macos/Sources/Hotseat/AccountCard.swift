@@ -10,7 +10,10 @@ struct AccountCard: View {
     let shortcut: Int?
     /// The account a switch is in progress to, if any.
     let switching: String?
+    /// Click on the card: CLI and Desktop together.
     let onTap: () -> Void
+    let onCLIOnly: () -> Void
+    let onDesktopOnly: () -> Void
     let hover = Hover()
 
     var body: some View {
@@ -35,11 +38,13 @@ struct AccountCard: View {
                 if switching == info.account {
                     ProgressView().controlSize(.small)
                 }
-                if info.current {
-                    Badge(text: "CLI", color: .accentColor)
-                }
-                if info.desktop == "active" {
-                    Badge(text: "Desktop", color: .accentColor)
+                Pill(text: "CLI", on: info.current, enabled: switching == nil,
+                     help: info.current ? "New terminal sessions use this account" : "Use this account for new terminal sessions only",
+                     action: onCLIOnly)
+                if info.desktop != "none" {
+                    Pill(text: "Desktop", on: info.desktop == "active", enabled: switching == nil,
+                         help: info.desktop == "active" ? "Claude Desktop runs as this account" : "Move only Claude Desktop to this account",
+                         action: onDesktopOnly)
                 }
                 if let shortcut {
                     Text("⌘\(shortcut)").font(.system(size: 11)).foregroundStyle(.tertiary)
@@ -48,6 +53,9 @@ struct AccountCard: View {
             VStack(alignment: .leading, spacing: 5) {
                 meter("5h", info.fiveHour)
                 meter("7d", info.sevenDay)
+                if let problem = info.loginProblem, !problem.isEmpty {
+                    warning("CLI login: " + problem, symbol: "person.crop.circle.badge.exclamationmark", color: .red)
+                }
                 if info.limitActive {
                     warning(Format.limit(info.limit, now: now), symbol: "exclamationmark.octagon.fill", color: .red)
                 }
@@ -106,6 +114,30 @@ struct Avatar: View {
                 .foregroundStyle(highlighted ? Color.white : Color.primary)
         }
         .frame(width: 28, height: 28)
+    }
+}
+
+/// Where an account is in use. A filled pill is in use here; an outlined
+/// one moves just that side (CLI or Desktop) to this account.
+struct Pill: View {
+    let text: String
+    let on: Bool
+    let enabled: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { if !on && enabled { action() } }) {
+            Text(text)
+                .font(.system(size: 10, weight: .semibold))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .background(Capsule().fill(on ? Color.accentColor : Color.clear))
+                .overlay(Capsule().strokeBorder(on ? Color.clear : Color.secondary.opacity(0.5), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 

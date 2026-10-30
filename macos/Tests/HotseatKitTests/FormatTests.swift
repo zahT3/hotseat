@@ -46,20 +46,24 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
 }
 
 @Test func titleText() throws {
+    // The icon shows usage; text is only the user's note, LIMIT, or "!".
+    // Never the email: the menu bar is on every screenshot.
     let s = try Snapshot.decode(Data(panelFixture.utf8))
-    #expect(Format.title(nil, failed: true) == "Hotseat !")
-    #expect(Format.title(nil, failed: false) == "Hotseat")
-    #expect(Format.title(s, failed: false) == "claude3 20%")
-    #expect(Format.title(s, failed: true) == "Hotseat !")
+    #expect(Format.title(nil, failed: true) == "!")
+    #expect(Format.title(nil, failed: false) == "")
+    #expect(Format.title(s, failed: false) == "")
+    #expect(Format.title(s, failed: true) == "!")
+    let noted = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"account\": \"claude3\", \"current\": true,", with: "\"account\": \"claude3\", \"current\": true, \"note\": \"Work\", \"email\": \"lisa.w@x.com\",").utf8))
+    #expect(Format.title(noted, failed: false) == "Work")
     let limited = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude\"").utf8))
-    #expect(Format.title(limited, failed: false) == "claude LIMIT")
+    #expect(Format.title(limited, failed: false) == "LIMIT")
 }
 
 @Test func titleWithoutCurrentAccount() throws {
     let empty = try Snapshot.decode(Data("""
     {"generatedAt":1,"current":"","desktop":{"managed":false,"running":false,"runningKnown":true,"pendingRecovery":false},"accounts":[]}
     """.utf8))
-    #expect(Format.title(empty, failed: false) == "Hotseat")
+    #expect(Format.title(empty, failed: false) == "")
 }
 
 @Test func windowValueText() {
@@ -88,11 +92,11 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
     }
     // The menu never shows Hotseat's internal names (claude2...).
     let both = try info("Work", "lisa.w@x.com")
-    #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com" && both.shortName == "Work")
+    #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com")
     let noteOnly = try info("Work", nil)
     #expect(noteOnly.displayName == "Work" && noteOnly.detail == nil)
     let emailOnly = try info(nil, "lisa.w@x.com")
-    #expect(emailOnly.displayName == "lisa.w@x.com" && emailOnly.detail == nil && emailOnly.shortName == "lisa.w")
+    #expect(emailOnly.displayName == "lisa.w@x.com" && emailOnly.detail == nil)
     let bare = try info(nil, nil)
-    #expect(bare.displayName == "claude2" && bare.detail == nil && bare.shortName == "claude2")
+    #expect(bare.displayName == "claude2" && bare.detail == nil)
 }

@@ -22,8 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var timer: Timer?
     private var settingsWindow: NSWindow?
 
-    /// An account clicked in the open menu, switched to once it has closed.
-    private var pendingSwitch: String?
+    /// What to switch, asked for in the open menu and done once it closed.
+    private enum Move {
+        case both(String)
+        case cliOnly(String)
+        case desktopOnly(String)
+    }
+    private var pendingMove: Move?
     private var menuOpen = false
     /// What the current menu items were built for; while the menu is open
     /// they are only updated in place, which keeps its size right.
@@ -52,9 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
         render()
-        if let name = pendingSwitch {
-            pendingSwitch = nil
-            later { self.beginSwitch(name) }
+        if let move = pendingMove {
+            pendingMove = nil
+            later { self.perform(move) }
         }
     }
 
@@ -105,16 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func renderStatusButton() {
         guard let button = statusItem.button else { return }
         let s = model.snapshot
-        if let switching = model.switching {
+        if model.switching != nil {
             button.image = StatusIcon.switching
-            button.title = " " + (s?.accounts.first { $0.account == switching }?.shortName ?? switching)
+            button.title = ""
             return
         }
         let current = s?.accounts.first { $0.account == s?.current }
         button.image = StatusIcon.meter(
             five: current?.fiveHour.map { $0.reset ? 0 : $0.usedPercent / 100 },
             week: current?.sevenDay.map { $0.reset ? 0 : $0.usedPercent / 100 })
-        button.title = " " + Format.title(s, failed: model.lastError != nil)
+        let title = Format.title(s, failed: model.lastError != nil)
+        button.title = title.isEmpty ? "" : " " + title
     }
 
     private func structureKey() -> String {
@@ -126,7 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AccountCard(
             info: a, recommended: s.recommend == a.account, now: Date(),
             shortcut: index < 9 ? index + 1 : nil, switching: model.switching,
-            onTap: { [weak self] in self?.clicked(a.account) })
+            onTap: { [weak self] in self?.clicked(.both(a.account)) },
+            onCLIOnly: { [weak self] in self?.clicked(.cliOnly(a.account)) },
+            onDesktopOnly: { [weak self] in self?.clicked(.desktopOnly(a.account)) })
     }
 
     private func rebuild(_ key: String) {
@@ -199,15 +207,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Switching
 
-    private func clicked(_ name: String) {
+    private func clicked(_ move: Move) {
         guard model.switching == nil else { return }
-        pendingSwitch = name
+        pendingMove = move
         menu.cancelTracking()
     }
 
     @objc private func switchFromKey(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
-        later { self.beginSwitch(name) }
+        later { self.perform(.both(name)) }
+    }
+
+    private func perform(_ move: Move) {
+        switch move {
+        case .both(let name): beginSwitch(name)
+        case .cliOnly(let name): switchCLIOnly(name)
+        case .desktopOnly(let name): switchDesktopOnly(name)
+        }
+    }
+
+    private func switchCLIOnly(_ name: String) {
+        guard model.switching == nil, model.snapshot?.current != name else { return }
+        model.switching = name
+        render()
+        Task {
+            do {
+                try await cli().useCLIOnly(name)
+            } catch {
+                report(error)
+            }
+            finishSwitch()
+        }
+    }
+
+    private func switchDesktopOnly(_ name: String) {
+        guard model.switching == nil, let s = model.snapshot, s.desktop.active != name else { return }
+        if s.desktop.running && model.askBeforeDesktopRestart {
+            let label = s.accounts.first { $0.account == name }?.displayName ?? name
+            let alert = NSAlert()
+            alert.messageText = "Restart Claude Desktop as \(label)?"
+            alert.informativeText = "Hotseat will quit Claude Desktop and reopen it as \(label) on the session you were in. Anything running in Desktop right now will stop. Terminal sessions are not affected."
+            alert.addButton(withTitle: "Restart Desktop")
+            alert.addButton(withTitle: "Cancel")
+            NSApp.activate()
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        model.switching = name
+        render()
+        Task {
+            do {
+                try await cli().switchDesktop(name)
+            } catch {
+                report(error)
+            }
+            finishSwitch()
+        }
     }
 
     private func beginSwitch(_ name: String) {
@@ -271,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 saveNote: { [weak self] in self?.saveNote($0, $1) },
                 addAccount: { [weak self] in later { self?.promptAddAccount() } },
                 setUpDesktop: { [weak self] name in later { self?.setUpDesktop(name) } },
+                remove: { [weak self] name in later { self?.confirmRemove(name) } },
                 setLaunchAtLogin: { [weak self] in self?.setLaunchAtLogin($0) },
                 setAskBeforeDesktopRestart: { [weak self] in self?.setAskBeforeDesktopRestart($0) })
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model, actions: actions)))
@@ -336,6 +391,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Task {
             do {
                 try await cli().setUpDesktop(name)
+            } catch {
+                report(error)
+            }
+            refresh()
+        }
+    }
+
+    private func confirmRemove(_ name: String) {
+        let label = model.snapshot?.accounts.first { $0.account == name }?.displayName ?? name
+        let alert = NSAlert()
+        alert.messageText = "Remove \(label)?"
+        alert.informativeText = "Hotseat signs this account out (claude auth logout) and moves its config dir and Claude Desktop profile into a Hotseat backup; nothing is deleted. Close any terminal using it first. Your shared work (projects, history) stays."
+        alert.addButton(withTitle: "Remove")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do {
+                try await cli().remove(name)
             } catch {
                 report(error)
             }

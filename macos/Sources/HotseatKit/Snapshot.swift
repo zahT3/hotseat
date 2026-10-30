@@ -46,6 +46,8 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
     public var email: String?
     public var note: String?
     public var configDir: String?
+    /// Set when the config dir is logged out or logged in to another account.
+    public var loginProblem: String?
 
     public var id: String { account }
 
@@ -58,11 +60,6 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
     /// names (claude2...) stay out of the menu; Settings shows them.
     public var detail: String? {
         nonEmpty(note) != nil ? nonEmpty(email) : nil
-    }
-
-    /// For the status bar: the note, else the email's local part.
-    public var shortName: String {
-        nonEmpty(note) ?? nonEmpty(email).map { String($0.prefix { $0 != "@" }) } ?? account
     }
 
     /// When the newer of the two usage windows was observed.

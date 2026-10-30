@@ -106,3 +106,15 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     """)
     try await cli.setUpDesktop("claude2")
 }
+
+@Test func partialSwitchesAndRemove() async throws {
+    let cli = try fakeHotseat("""
+    case "$*" in
+      "use claude2 --cli-only --json"|"desktop switch claude2 --resume current --json"|"remove claude2 --yes --json") exit 0 ;;
+      *) echo "bad args: $*" >&2; exit 9 ;;
+    esac
+    """)
+    try await cli.useCLIOnly("claude2")
+    try await cli.switchDesktop("claude2")
+    try await cli.remove("claude2")
+}
