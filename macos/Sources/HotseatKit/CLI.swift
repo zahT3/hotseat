@@ -75,6 +75,12 @@ public struct HotseatCLI: Sendable {
         _ = try await run(["note", account] + (text.isEmpty ? [] : [text]) + ["--json"], timeout: .seconds(30))
     }
 
+    /// Gives `account` an empty Claude Desktop profile and opens Desktop on
+    /// it to log in (quits a running Desktop first).
+    public func setUpDesktop(_ account: String) async throws {
+        _ = try await run(["desktop", "add", account, "--yes"], timeout: .seconds(120))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)

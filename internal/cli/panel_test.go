@@ -30,6 +30,7 @@ type panelOut struct {
 		Desktop        string `json:"desktop"`
 		DesktopProblem string `json:"desktopProblem"`
 		Email          string `json:"email"`
+		ConfigDir      string `json:"configDir"`
 		Note           string `json:"note"`
 	} `json:"accounts"`
 }
@@ -58,6 +59,9 @@ func TestPanelJSONShape(t *testing.T) {
 	}
 	if v.Accounts[0].Account != "claude" || !v.Accounts[0].Current || v.Accounts[1].Account != "claude2" {
 		t.Errorf("accounts %+v", v.Accounts)
+	}
+	if v.Accounts[1].ConfigDir != filepath.Join(p.Home, ".claude2") {
+		t.Errorf("claude2 configDir %q", v.Accounts[1].ConfigDir)
 	}
 	if v.Accounts[1].FiveHour == nil || v.Accounts[1].FiveHour.UsedPercent != 16 {
 		t.Errorf("claude2 fiveHour %+v", v.Accounts[1].FiveHour)

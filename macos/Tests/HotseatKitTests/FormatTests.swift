@@ -86,13 +86,13 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
         if let email { fields.append("\"email\":\"\(email)\"") }
         return try JSONDecoder().decode(AccountInfo.self, from: Data(("{" + fields.joined(separator: ",") + "}").utf8))
     }
-    let both = try info("Work", "b@x.com")
-    #expect(both.displayName == "Work" && both.detail == "claude2 · b@x.com")
+    // The menu never shows Hotseat's internal names (claude2...).
+    let both = try info("Work", "lisa.w@x.com")
+    #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com" && both.shortName == "Work")
     let noteOnly = try info("Work", nil)
-    #expect(noteOnly.displayName == "Work" && noteOnly.detail == "claude2")
-    let emailOnly = try info(nil, "b@x.com")
-    #expect(emailOnly.displayName == "b@x.com" && emailOnly.detail == "claude2")
+    #expect(noteOnly.displayName == "Work" && noteOnly.detail == nil)
+    let emailOnly = try info(nil, "lisa.w@x.com")
+    #expect(emailOnly.displayName == "lisa.w@x.com" && emailOnly.detail == nil && emailOnly.shortName == "lisa.w")
     let bare = try info(nil, nil)
-    #expect(bare.displayName == "claude2" && bare.detail == nil)
-    #expect(bare.shortName == "claude2" && both.shortName == "Work")
+    #expect(bare.displayName == "claude2" && bare.detail == nil && bare.shortName == "claude2")
 }

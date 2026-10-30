@@ -45,6 +45,7 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
     public var desktopProblem: String?
     public var email: String?
     public var note: String?
+    public var configDir: String?
 
     public var id: String { account }
 
@@ -53,17 +54,15 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
         nonEmpty(note) ?? nonEmpty(email) ?? account
     }
 
-    /// The name Hotseat uses, plus the email when a note hides it.
+    /// The email, when a note is shown in its place. Hotseat's own account
+    /// names (claude2...) stay out of the menu; Settings shows them.
     public var detail: String? {
-        if nonEmpty(note) != nil {
-            return nonEmpty(email).map { "\(account) · \($0)" } ?? account
-        }
-        return nonEmpty(email) != nil ? account : nil
+        nonEmpty(note) != nil ? nonEmpty(email) : nil
     }
 
-    /// For the status bar: the note or the account name, never the email.
+    /// For the status bar: the note, else the email's local part.
     public var shortName: String {
-        nonEmpty(note) ?? account
+        nonEmpty(note) ?? nonEmpty(email).map { String($0.prefix { $0 != "@" }) } ?? account
     }
 
     /// When the newer of the two usage windows was observed.

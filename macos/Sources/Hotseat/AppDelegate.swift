@@ -3,38 +3,40 @@ import HotseatKit
 import ServiceManagement
 import SwiftUI
 
+/// Runs `body` on the main queue outside any Swift task. Modal alerts go
+/// through here: a runModal() nested inside a Task let AppKit call back
+/// into the app mid-task, and the app crashed in Swift's executor check.
+@MainActor
+private func later(_ body: @escaping @MainActor () -> Void) {
+    DispatchQueue.main.async {
+        MainActor.assumeIsolated { body() }
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let model = AppModel()
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
-    private var snapshot: Snapshot?
-    private var lastError: HotseatError?
     private var gate = RefreshGate()
-    /// The account being switched to; actions are disabled meanwhile.
-    private var switching: String?
     private var timer: Timer?
+    private var settingsWindow: NSWindow?
 
-    /// Something asked for in the open menu, done once the menu has closed
-    /// (alerts and long work must not run inside menu tracking).
-    private enum Action {
-        case switchTo(String)
-        case editNote(String)
-    }
-    private var pending: Action?
-
+    /// An account clicked in the open menu, switched to once it has closed.
+    private var pendingSwitch: String?
     private var menuOpen = false
     /// What the current menu items were built for; while the menu is open
     /// they are only updated in place, which keeps its size right.
     private var builtFor = ""
     private var cards: [String: NSHostingView<AccountCard>] = [:]
     private var errorItem: NSMenuItem?
-    private var loginItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.imagePosition = .imageLeading
         menu.delegate = self
         statusItem.menu = menu
+        loadPreferences()
         render()
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
@@ -50,15 +52,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         menuOpen = false
         render()
-        guard let action = pending else { return }
-        pending = nil
-        Task { self.perform(action) }
+        if let name = pendingSwitch {
+            pendingSwitch = nil
+            later { self.beginSwitch(name) }
+        }
     }
 
     private func cli() throws -> HotseatCLI {
         try HotseatCLI.locate(
             override: UserDefaults.standard.string(forKey: "hotseatPath"),
             home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    private func loadPreferences() {
+        model.launchAtLogin = SMAppService.mainApp.status == .enabled
+        model.askBeforeDesktopRestart = !UserDefaults.standard.bool(forKey: "skipDesktopConfirm")
+        model.cliPath = (try? cli().executable.path) ?? ""
     }
 
     @objc private func refresh() {
@@ -69,10 +78,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startRefresh() {
         Task {
             do {
-                snapshot = try await cli().snapshot()
-                lastError = nil
+                model.snapshot = try await cli().snapshot()
+                model.lastError = nil
             } catch {
-                lastError = error as? HotseatError ?? .failed(code: -1, stderr: "\(error)")
+                model.lastError = hotseatError(error)
             }
             render()
             if gate.finish() {
@@ -81,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    // MARK: - Drawing
+    // MARK: - Menu
 
     private func render() {
         renderStatusButton()
@@ -95,29 +104,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func renderStatusButton() {
         guard let button = statusItem.button else { return }
-        if let switching {
-            let name = snapshot?.accounts.first { $0.account == switching }?.shortName ?? switching
+        let s = model.snapshot
+        if let switching = model.switching {
             button.image = StatusIcon.switching
-            button.title = " " + name
+            button.title = " " + (s?.accounts.first { $0.account == switching }?.shortName ?? switching)
             return
         }
-        let current = snapshot?.accounts.first { $0.account == snapshot?.current }
-        let five = current?.fiveHour.map { $0.reset ? 0 : $0.usedPercent / 100 }
-        let week = current?.sevenDay.map { $0.reset ? 0 : $0.usedPercent / 100 }
-        button.image = StatusIcon.meter(five: five, week: week)
-        button.title = " " + Format.title(snapshot, failed: lastError != nil)
+        let current = s?.accounts.first { $0.account == s?.current }
+        button.image = StatusIcon.meter(
+            five: current?.fiveHour.map { $0.reset ? 0 : $0.usedPercent / 100 },
+            week: current?.sevenDay.map { $0.reset ? 0 : $0.usedPercent / 100 })
+        button.title = " " + Format.title(s, failed: model.lastError != nil)
     }
 
     private func structureKey() -> String {
-        guard let s = snapshot else { return "none|\(lastError != nil)" }
-        return s.accounts.map(\.account).joined(separator: ",") + "|\(s.desktop.pendingRecovery)|\(lastError != nil)"
+        guard let s = model.snapshot else { return "none|\(model.lastError != nil)" }
+        return s.accounts.map(\.account).joined(separator: ",") + "|\(s.desktop.pendingRecovery)|\(model.lastError != nil)"
     }
 
-    private func card(_ a: AccountInfo, _ s: Snapshot) -> AccountCard {
+    private func card(_ a: AccountInfo, _ s: Snapshot, index: Int) -> AccountCard {
         AccountCard(
-            info: a, recommended: s.recommend == a.account, now: Date(), switching: switching,
-            onSwitch: { [weak self] in self?.request(.switchTo(a.account)) },
-            onEditNote: { [weak self] in self?.request(.editNote(a.account)) })
+            info: a, recommended: s.recommend == a.account, now: Date(),
+            shortcut: index < 9 ? index + 1 : nil, switching: model.switching,
+            onTap: { [weak self] in self?.clicked(a.account) })
     }
 
     private func rebuild(_ key: String) {
@@ -125,52 +134,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         cards = [:]
         errorItem = nil
-        if let s = snapshot {
-            for a in s.accounts {
-                let host = NSHostingView(rootView: card(a, s))
+        if let s = model.snapshot {
+            for (i, a) in s.accounts.enumerated() {
+                let host = NSHostingView(rootView: card(a, s, index: i))
                 host.frame = NSRect(origin: .zero, size: host.fittingSize)
-                let item = NSMenuItem()
+                let item = NSMenuItem(title: a.displayName, action: #selector(switchFromKey(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
+                item.target = self
+                item.representedObject = a.account
                 item.view = host
                 menu.addItem(item)
                 cards[a.account] = host
             }
             if s.accounts.isEmpty {
-                menu.addItem(note("No accounts yet — use Add Account…", symbol: "info.circle"))
+                menu.addItem(note("No accounts yet — add one in Settings", symbol: "info.circle"))
             }
             if s.desktop.pendingRecovery {
                 menu.addItem(note("Desktop switch was interrupted — run: hotseat desktop recover", symbol: "exclamationmark.triangle"))
             }
-        } else if lastError == nil {
+        } else if model.lastError == nil {
             menu.addItem(note("Loading…", symbol: nil))
         }
-        if let lastError {
-            let item = note(lastError.message, symbol: "exclamationmark.triangle")
+        if let error = model.lastError {
+            let item = note(error.message, symbol: "exclamationmark.triangle")
             menu.addItem(item)
             errorItem = item
         }
         menu.addItem(.separator())
-        menu.addItem(action("Add Account…", symbol: "person.crop.circle.badge.plus", #selector(addAccount), key: ""))
+        menu.addItem(action("Settings…", symbol: "gearshape", #selector(openSettings), key: ","))
         menu.addItem(action("Refresh", symbol: "arrow.clockwise", #selector(refresh), key: "r"))
-        let login = action("Launch at Login", symbol: "power.circle", #selector(toggleLaunchAtLogin), key: "")
-        menu.addItem(login)
-        loginItem = login
-        menu.addItem(.separator())
-        menu.addItem(action("Quit Hotseat", symbol: nil, #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        menu.addItem(action("Quit Hotseat", symbol: "power", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         updateInPlace()
     }
 
     private func updateInPlace() {
-        if let s = snapshot {
-            for a in s.accounts {
+        if let s = model.snapshot {
+            for (i, a) in s.accounts.enumerated() {
                 guard let host = cards[a.account] else { continue }
-                host.rootView = card(a, s)
+                host.rootView = card(a, s, index: i)
                 host.frame.size = host.fittingSize
             }
         }
-        if let errorItem, let lastError {
-            errorItem.title = lastError.message
+        if let errorItem, let error = model.lastError {
+            errorItem.title = error.message
         }
-        loginItem?.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
 
     private func note(_ text: String, symbol: String?) -> NSMenuItem {
@@ -191,92 +197,121 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    // MARK: - Actions
+    // MARK: - Switching
 
-    private func request(_ action: Action) {
-        guard switching == nil else { return }
-        pending = action
+    private func clicked(_ name: String) {
+        guard model.switching == nil else { return }
+        pendingSwitch = name
         menu.cancelTracking()
     }
 
-    @objc private func addAccount() {
-        // Menu item actions arrive after menu tracking has ended.
-        Task { self.promptAddAccount() }
-    }
-
-    private func perform(_ action: Action) {
-        switch action {
-        case .switchTo(let name): beginSwitch(name)
-        case .editNote(let name): editNote(name)
-        }
+    @objc private func switchFromKey(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        later { self.beginSwitch(name) }
     }
 
     private func beginSwitch(_ name: String) {
-        guard switching == nil, let s = snapshot else { return }
+        guard model.switching == nil, let s = model.snapshot else { return }
         if name == s.current && (s.desktop.active == nil || s.desktop.active == name) { return }
-        switching = name
+        model.switching = name
         render()
         Task {
             do {
-                let cli = try cli()
                 // hotseat decides on live state whether Desktop must restart.
-                let skipAsk = UserDefaults.standard.bool(forKey: "skipDesktopConfirm")
-                if try await cli.use(name, restartDesktop: skipAsk) == .needsDesktopRestart, confirmDesktopRestart(name) {
-                    _ = try await cli.use(name, restartDesktop: true)
+                if try await cli().use(name, restartDesktop: !model.askBeforeDesktopRestart) == .needsDesktopRestart {
+                    later { self.askToRestartDesktop(name) }
+                    return
                 }
             } catch {
-                switching = nil
-                render()
-                show(error: error as? HotseatError ?? .failed(code: -1, stderr: "\(error)"))
+                report(error)
             }
-            switching = nil
-            render()
-            refresh()
+            finishSwitch()
         }
     }
 
-    private func confirmDesktopRestart(_ name: String) -> Bool {
+    private func askToRestartDesktop(_ name: String) {
+        let label = model.snapshot?.accounts.first { $0.account == name }?.displayName ?? name
         let alert = NSAlert()
-        alert.messageText = "Restart Claude Desktop as \(name)?"
-        alert.informativeText = "New terminal sessions already use \(name). Claude Desktop is running as another account: Hotseat will quit it and reopen it as \(name) on the session you were in. Anything running in Desktop right now will stop."
+        alert.messageText = "Restart Claude Desktop as \(label)?"
+        alert.informativeText = "New terminal sessions already use \(label). Claude Desktop is running as another account: Hotseat will quit it and reopen it as \(label) on the session you were in. Anything running in Desktop right now will stop."
         alert.addButton(withTitle: "Restart Desktop")
         alert.addButton(withTitle: "Not Now")
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Don't ask again"
         NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        if alert.suppressionButton?.state == .on {
-            UserDefaults.standard.set(true, forKey: "skipDesktopConfirm")
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            finishSwitch()
+            return
         }
-        return true
+        if alert.suppressionButton?.state == .on {
+            setAskBeforeDesktopRestart(false)
+        }
+        Task {
+            do {
+                _ = try await cli().use(name, restartDesktop: true)
+            } catch {
+                report(error)
+            }
+            finishSwitch()
+        }
     }
 
-    private func editNote(_ name: String) {
-        let currentNote = snapshot?.accounts.first { $0.account == name }?.note ?? ""
-        guard let text = prompt(
-            title: "Note for \(name)",
-            message: "Shown instead of the email. Leave empty to show the email again.",
-            initial: currentNote, placeholder: "e.g. Work", ok: "Save")
-        else { return }
+    private func finishSwitch() {
+        model.switching = nil
+        render()
+        refresh()
+    }
+
+    // MARK: - Settings
+
+    @objc private func openSettings() {
+        loadPreferences()
+        if settingsWindow == nil {
+            let actions = SettingsActions(
+                saveNote: { [weak self] in self?.saveNote($0, $1) },
+                addAccount: { [weak self] in later { self?.promptAddAccount() } },
+                setUpDesktop: { [weak self] name in later { self?.setUpDesktop(name) } },
+                setLaunchAtLogin: { [weak self] in self?.setLaunchAtLogin($0) },
+                setAskBeforeDesktopRestart: { [weak self] in self?.setAskBeforeDesktopRestart($0) })
+            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model, actions: actions)))
+            window.title = "Hotseat Settings"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
+        }
+        NSApp.activate()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        refresh()
+    }
+
+    private func saveNote(_ name: String, _ text: String) {
         Task {
             do {
                 try await cli().setNote(name, text)
+                model.noteDrafts[name] = nil
             } catch {
-                show(error: error as? HotseatError ?? .failed(code: -1, stderr: "\(error)"))
+                report(error)
             }
             refresh()
         }
     }
 
     private func promptAddAccount() {
-        guard let name = prompt(
-            title: "Add a Claude account",
-            message: "Pick a short name for it (letters, digits, . _ -). Terminal opens with the official Claude login; sign in there with the new account.",
-            initial: "", placeholder: "e.g. work", ok: "Continue")?
-            .trimmingCharacters(in: .whitespaces), !name.isEmpty
-        else { return }
+        let alert = NSAlert()
+        alert.messageText = "Add a Claude account"
+        alert.informativeText = "Pick a short name for it (letters, digits, . _ -). Terminal opens with the official Claude login; sign in there with the new account."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.placeholderString = "e.g. work"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespaces)
         guard AddAccount.isValidName(name) else {
-            show(error: .failed(code: -1, stderr: "\"\(name)\" is not a valid account name: use letters, digits, . _ - and start with a letter or digit."))
+            show("\"\(name)\" is not a valid account name: use letters, digits, . _ - and start with a letter or digit.")
             return
         }
         do {
@@ -285,44 +320,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
             NSWorkspace.shared.open(script)
         } catch {
-            show(error: error as? HotseatError ?? .failed(code: -1, stderr: "\(error)"))
+            show(hotseatError(error).message)
         }
     }
 
-    private func prompt(title: String, message: String, initial: String, placeholder: String, ok: String) -> String? {
+    private func setUpDesktop(_ name: String) {
+        let label = model.snapshot?.accounts.first { $0.account == name }?.displayName ?? name
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: ok)
+        alert.messageText = "Set up Claude Desktop for \(label)?"
+        alert.informativeText = "Claude Desktop quits if it is running and reopens with an empty profile for this account. Sign in there with \(label). Your current Desktop data is kept for its own account."
+        alert.addButton(withTitle: "Set Up")
         alert.addButton(withTitle: "Cancel")
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        field.stringValue = initial
-        field.placeholderString = placeholder
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
         NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
-        return field.stringValue
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task {
+            do {
+                try await cli().setUpDesktop(name)
+            } catch {
+                report(error)
+            }
+            refresh()
+        }
     }
 
-    private func show(error: HotseatError) {
-        let alert = NSAlert()
-        alert.messageText = "Hotseat"
-        alert.informativeText = error.message
-        NSApp.activate()
-        alert.runModal()
-    }
-
-    @objc private func toggleLaunchAtLogin() {
+    private func setLaunchAtLogin(_ on: Bool) {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
+            if on {
                 try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
             }
         } catch {
-            show(error: .failed(code: -1, stderr: "Launch at Login: \(error.localizedDescription)"))
+            show("Launch at Login: \(error.localizedDescription)")
         }
-        render()
+        model.launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
+
+    private func setAskBeforeDesktopRestart(_ ask: Bool) {
+        UserDefaults.standard.set(!ask, forKey: "skipDesktopConfirm")
+        model.askBeforeDesktopRestart = ask
+    }
+
+    // MARK: - Errors
+
+    private func hotseatError(_ error: Error) -> HotseatError {
+        error as? HotseatError ?? .failed(code: -1, stderr: "\(error)")
+    }
+
+    /// Reports an error from async work; the alert is shown outside the task.
+    private func report(_ error: Error) {
+        let text = hotseatError(error).message
+        later { self.show(text) }
+    }
+
+    private func show(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = "Hotseat"
+        alert.informativeText = text
+        NSApp.activate()
+        alert.runModal()
     }
 }

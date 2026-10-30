@@ -13,6 +13,7 @@ import Testing
     #expect(s.accounts[0].desktopProblem == nil && s.accounts[0].error == nil)
     #expect(s.accounts[1].fiveHour?.reset == true)
     #expect(s.accounts[1].desktopProblem == "not logged in yet")
+    #expect(s.accounts[1].configDir == "/Users/u/.claude2" && s.accounts[0].configDir == nil)
     #expect(s.accounts[2].sevenDay?.usedPercent == 79)
     #expect(s.accounts[2].desktop == "active")
 }

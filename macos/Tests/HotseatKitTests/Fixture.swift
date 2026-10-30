@@ -11,7 +11,7 @@ let panelFixture = """
     {"account": "claude", "current": false, "fiveHour": null, "sevenDay": null,
      "limit": {"message": "You've hit your weekly limit", "resetsAt": 1793527200, "observedAt": 1793253315, "sessionId": "s", "cwd": "/tmp"},
      "limitActive": true, "desktop": "parked"},
-    {"account": "claude2", "current": false,
+    {"account": "claude2", "current": false, "configDir": "/Users/u/.claude2",
      "fiveHour": {"usedPercent": 0, "resetsAt": 1793309400, "observedAt": 1793293372, "source": "statusline", "reset": true},
      "sevenDay": {"usedPercent": 64, "resetsAt": 1793732400, "observedAt": 1793293401, "source": "statusline", "reset": false},
      "limit": null, "limitActive": false, "desktop": "parked", "desktopProblem": "not logged in yet"},

@@ -99,3 +99,10 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     #expect(s.hasPrefix("#!/bin/zsh -il\n"))
     #expect(s.contains("'/Users/o'\\''neil/bin/hotseat' add 'work'"))
 }
+
+@Test func setUpDesktopRunsDesktopAdd() async throws {
+    let cli = try fakeHotseat("""
+    [ "$*" = "desktop add claude2 --yes" ] || { echo "bad args: $*" >&2; exit 9; }
+    """)
+    try await cli.setUpDesktop("claude2")
+}

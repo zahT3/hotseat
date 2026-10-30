@@ -1,20 +1,17 @@
 import HotseatKit
 import SwiftUI
 
-/// One account in the menu: who it is, where it is in use, its two usage
-/// windows, and the actions for it.
+/// One account in the menu. The whole card is the switch, like a network
+/// in the Wi-Fi menu: one account is active at a time.
 struct AccountCard: View {
     let info: AccountInfo
     let recommended: Bool
     let now: Date
+    let shortcut: Int?
     /// The account a switch is in progress to, if any.
     let switching: String?
-    let onSwitch: () -> Void
-    let onEditNote: () -> Void
-
-    /// Switching does something unless this account already runs both the
-    /// CLI and (where it has a profile) Desktop.
-    private var canSwitch: Bool { !info.current || info.desktop == "parked" }
+    let onTap: () -> Void
+    let hover = Hover()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -35,11 +32,17 @@ struct AccountCard: View {
                     }
                 }
                 Spacer(minLength: 4)
+                if switching == info.account {
+                    ProgressView().controlSize(.small)
+                }
                 if info.current {
                     Badge(text: "CLI", color: .accentColor)
                 }
                 if info.desktop == "active" {
                     Badge(text: "Desktop", color: .accentColor)
+                }
+                if let shortcut {
+                    Text("⌘\(shortcut)").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
             }
             VStack(alignment: .leading, spacing: 5) {
@@ -54,32 +57,23 @@ struct AccountCard: View {
                 if let error = info.error, !error.isEmpty {
                     warning(error, symbol: "xmark.octagon.fill", color: .red)
                 }
-                HStack(spacing: 8) {
-                    Text(Format.age(info.observedAt, now: now))
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(action: onEditNote) {
-                        Image(systemName: "pencil")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Edit note")
-                    .disabled(switching != nil)
-                    if switching == info.account {
-                        ProgressView().controlSize(.small)
-                        Text("Switching…").font(.system(size: 12)).foregroundStyle(.secondary)
-                    } else if canSwitch {
-                        Button(info.current ? "Switch Desktop" : "Switch", action: onSwitch)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .disabled(switching != nil)
-                    }
-                }
+                Text(Format.age(info.observedAt, now: now))
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .padding(.leading, 38)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(width: 350, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hover.on && switching == nil ? Color.primary.opacity(0.08) : .clear)
+                .padding(.horizontal, 5))
+        .opacity(switching != nil && switching != info.account ? 0.5 : 1)
+        .contentShape(Rectangle())
+        .onHover { hover.on = $0 }
+        .onTapGesture { if switching == nil { onTap() } }
+        .help(info.current && info.desktop != "parked" ? "In use" : "Click to switch to this account")
     }
 
     private func meter(_ label: String, _ w: UsageWindow?) -> some View {

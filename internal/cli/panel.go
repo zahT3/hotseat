@@ -24,6 +24,7 @@ type panelAccount struct {
 	DesktopProblem string `json:"desktopProblem,omitempty"`
 	Email          string `json:"email,omitempty"`
 	Note           string `json:"note,omitempty"`
+	ConfigDir      string `json:"configDir,omitempty"`
 }
 
 type panelView struct {
@@ -75,7 +76,7 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	for _, r := range rows {
 		a := panelAccount{usageRow: r, Desktop: "none"}
 		if acct, ok := reg.Find(r.Account); ok {
-			a.Note = acct.Note
+			a.Note, a.ConfigDir = acct.Note, acct.ConfigDir
 			a.Email = account.ReadEmail(account.ClaudeJSONPath(p, acct))
 		}
 		if ps, ok := profiles[r.Account]; ok {
