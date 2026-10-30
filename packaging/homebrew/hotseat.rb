@@ -1,4 +1,4 @@
-# typed: true
+# typed: strict
 # frozen_string_literal: true
 
 # Hotseat: several Claude accounts on one Mac, one workspace.
