@@ -27,6 +27,7 @@ var commands = map[string]command{
 	"usage":      cmdUsage,
 	"desktop":    cmdDesktop,
 	"panel":      cmdPanel,
+	"note":       cmdNote,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {

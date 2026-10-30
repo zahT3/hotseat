@@ -115,3 +115,14 @@ func TestCurrentRoundTrip(t *testing.T) {
 		t.Errorf("CurrentName = %q, %v", name, err)
 	}
 }
+
+func TestReadEmail(t *testing.T) {
+	f := filepath.Join(t.TempDir(), ".claude.json")
+	testutil.WriteFile(t, f, `{"oauthAccount":{"accountUuid":"a1","emailAddress":"x@y.example"},"userID":"secret-ish"}`)
+	if got := account.ReadEmail(f); got != "x@y.example" {
+		t.Errorf("got %q", got)
+	}
+	if got := account.ReadEmail(filepath.Join(t.TempDir(), "missing.json")); got != "" {
+		t.Errorf("missing file: got %q", got)
+	}
+}

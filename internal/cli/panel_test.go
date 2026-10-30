@@ -29,6 +29,8 @@ type panelOut struct {
 		} `json:"fiveHour"`
 		Desktop        string `json:"desktop"`
 		DesktopProblem string `json:"desktopProblem"`
+		Email          string `json:"email"`
+		Note           string `json:"note"`
 	} `json:"accounts"`
 }
 

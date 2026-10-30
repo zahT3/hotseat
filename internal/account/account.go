@@ -23,6 +23,8 @@ type Account struct {
 	IsDefault   bool   `json:"isDefault"`
 	AccountUUID string `json:"accountUuid"`
 	OrgUUID     string `json:"orgUuid"`
+	// Note is the user's own label for the account.
+	Note string `json:"note,omitempty"`
 }
 
 type Registry struct {
@@ -105,6 +107,24 @@ func ReadIdentity(claudeJSON string) (Identity, error) {
 		return Identity{}, ErrNoIdentity
 	}
 	return Identity{AccountUUID: doc.OAuthAccount.AccountUUID, OrgUUID: doc.OAuthAccount.OrgUUID}, nil
+}
+
+// ReadEmail returns the login's email address from a .claude.json, or ""
+// when there is none. Only the menu bar shows it, to tell accounts apart.
+func ReadEmail(claudeJSON string) string {
+	b, err := os.ReadFile(claudeJSON)
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		OAuthAccount struct {
+			Email string `json:"emailAddress"`
+		} `json:"oauthAccount"`
+	}
+	if json.Unmarshal(b, &doc) != nil {
+		return ""
+	}
+	return doc.OAuthAccount.Email
 }
 
 func CurrentName(p paths.Paths) (string, error) {

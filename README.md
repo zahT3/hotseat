@@ -14,7 +14,7 @@ Claude Code officially supports one config dir per account via `CLAUDE_CONFIG_DI
 
 ## What Hotseat never does
 
-- It never reads, copies or stores tokens or credentials: not `.credentials.json`, not the keychain, not `CLAUDE_CODE_OAUTH_TOKEN`. From `.claude.json` it reads only the account and organization IDs and the `mcpServers` key. Logins always go through Claude's own `claude auth login`.
+- It never reads, copies or stores tokens or credentials: not `.credentials.json`, not the keychain, not `CLAUDE_CODE_OAUTH_TOKEN`. From `.claude.json` it reads only the account and organization IDs, the `mcpServers` key, and the email address (shown in the menu bar app to tell accounts apart). Logins always go through Claude's own `claude auth login`.
 - It never switches accounts on its own. Every switch is a command you run.
 - It never deletes your data. Anything it replaces is moved into a backup you can roll back.
 
@@ -37,6 +37,7 @@ hotseat shim install         # put the claude shim first on PATH via ~/.zshrc
 hotseat use claude2          # new claude sessions now use claude2
 hotseat add work             # new config dir + official login, linked to shared work data
 hotseat doctor               # report drift, unknown entries, and setup problems
+hotseat note claude2 Work     # your own label for an account, shown in the menu bar app
 ```
 
 `share apply` merges each account's `history.jsonl` into the shared one and copies entries that only exist in an account dir into `~/.claude`. When both sides have a different version of the same file, the shared copy wins and the account's copy stays in the backup; `apply` lists those paths.
