@@ -5,7 +5,7 @@ public enum Format {
     /// A usage window's number and reset time, shown beside its bar.
     public static func value(_ w: UsageWindow?, now: Date, calendar: Calendar = .current) -> String {
         guard let w else { return "?" }
-        if w.reset { return "0% (reset)" }
+        if w.isReset(now: now) { return "0% (reset)" }
         var s = "\(String(format: "%.0f", w.usedPercent))%"
         if w.resetsAt > 0 {
             s += " · " + resets(w.resetsAt, now: now, calendar: calendar)
@@ -63,11 +63,11 @@ public enum Format {
     /// The text beside the current account's avatar in the menu bar: its
     /// 5-hour use, LIMIT, or "!" on errors. Never the email: the menu bar
     /// ends up in every screenshot.
-    public static func title(_ s: Snapshot?, failed: Bool) -> String {
+    public static func title(_ s: Snapshot?, failed: Bool, now: Date = Date()) -> String {
         if failed { return "!" }
         guard let s, let a = s.accounts.first(where: { $0.account == s.current }) else { return "" }
-        if a.limitActive { return "LIMIT" }
+        if a.isLimited(now: now) { return "LIMIT" }
         guard let w = a.fiveHour else { return "" }
-        return "\(String(format: "%.0f", w.reset ? 0 : w.usedPercent))%"
+        return "\(String(format: "%.0f", w.percent(now: now)))%"
     }
 }

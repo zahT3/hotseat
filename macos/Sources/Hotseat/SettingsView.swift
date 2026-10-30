@@ -23,7 +23,7 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
         }
         .padding(16)
-        .frame(width: 600, height: 460)
+        .frame(width: 600, height: 560)
     }
 }
 
@@ -72,18 +72,22 @@ struct AccountSettingsRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Menu {
-                ForEach(iconChoices, id: \.self) { name in
-                    Button { actions.setIcon(info.account, name) } label: { Label(name, systemImage: name) }
-                }
-                Divider()
-                Button("Initial (default)") { actions.setIcon(info.account, nil) }
-            } label: {
+            // A Menu's label loses custom backgrounds, so the avatar stays a
+            // plain view and the picker sits under it.
+            VStack(spacing: 4) {
                 Avatar(info: info, size: 36)
+                Menu("Change") {
+                    ForEach(iconChoices, id: \.self) { name in
+                        Button { actions.setIcon(info.account, name) } label: { Label(name, systemImage: name) }
+                    }
+                    Divider()
+                    Button("Initial (default)") { actions.setIcon(info.account, nil) }
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .font(.system(size: 11))
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     TextField(info.email ?? info.account, text: draft)

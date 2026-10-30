@@ -64,6 +64,13 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
         nonEmpty(email)
     }
 
+    /// Whether the limit still holds now (the snapshot may be old).
+    public func isLimited(now: Date) -> Bool {
+        guard limitActive else { return false }
+        guard let resets = limit?.resetsAt, resets > 0 else { return true }
+        return Double(resets) > now.timeIntervalSince1970
+    }
+
     /// When the newer of the two usage windows was observed.
     public var observedAt: Int64? {
         [fiveHour?.observedAt, sevenDay?.observedAt].compactMap { $0 }.filter { $0 > 0 }.max()
@@ -81,6 +88,17 @@ public struct UsageWindow: Decodable, Sendable {
     public var observedAt: Int64
     public var source: String
     public var reset: Bool
+
+    /// Whether the window has reset by `now`, as reported or because its
+    /// reset time has passed since the snapshot was taken.
+    public func isReset(now: Date) -> Bool {
+        reset || (resetsAt > 0 && Double(resetsAt) <= now.timeIntervalSince1970)
+    }
+
+    /// Used percent as of `now`.
+    public func percent(now: Date) -> Double {
+        isReset(now: now) ? 0 : usedPercent
+    }
 
     public init(usedPercent: Double, resetsAt: Int64, observedAt: Int64, source: String, reset: Bool) {
         self.usedPercent = usedPercent

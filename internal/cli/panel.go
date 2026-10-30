@@ -52,13 +52,10 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	rows, err := usageRows(p, now)
-	if err != nil {
-		return fail(stderr, err)
-	}
 	cur, _ := account.CurrentName(p)
+	records, errs := loadRecords(p, reg)
+	rows := rowsFrom(reg, cur, records, errs, now)
 	v := panelView{GeneratedAt: now.Unix(), Current: cur, Accounts: []panelAccount{}}
-	records, _ := loadRecords(p, reg)
 	v.Recommend, _ = usage.Recommend(reg, records, cur, now)
 
 	profiles := map[string]profileStatus{}

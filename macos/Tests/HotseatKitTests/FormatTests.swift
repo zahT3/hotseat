@@ -48,14 +48,15 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
 @Test func titleText() throws {
     // Beside the account's avatar: its 5-hour use, LIMIT, or "!" on errors.
     let s = try Snapshot.decode(Data(panelFixture.utf8))
-    #expect(Format.title(nil, failed: true) == "!")
-    #expect(Format.title(nil, failed: false) == "")
-    #expect(Format.title(s, failed: false) == "20%")
-    #expect(Format.title(s, failed: true) == "!")
+    let generated = Date(timeIntervalSince1970: TimeInterval(s.generatedAt))
+    #expect(Format.title(nil, failed: true, now: generated) == "!")
+    #expect(Format.title(nil, failed: false, now: generated) == "")
+    #expect(Format.title(s, failed: false, now: generated) == "20%")
+    #expect(Format.title(s, failed: true, now: generated) == "!")
     let reset = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude2\"").utf8))
-    #expect(Format.title(reset, failed: false) == "0%")
+    #expect(Format.title(reset, failed: false, now: generated) == "0%")
     let limited = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude\"").utf8))
-    #expect(Format.title(limited, failed: false) == "LIMIT")
+    #expect(Format.title(limited, failed: false, now: generated) == "LIMIT")
 }
 
 @Test func titleWithoutCurrentAccount() throws {
@@ -90,12 +91,26 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
         return try JSONDecoder().decode(AccountInfo.self, from: Data(("{" + fields.joined(separator: ",") + "}").utf8))
     }
     // Hotseat's internal names (claude2...) only show when nothing else is known.
-    let both = try info("Work", "lisa.w@x.com")
-    #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com")
+    let both = try info("Work", "sam.w@example.com")
+    #expect(both.displayName == "Work" && both.detail == "sam.w@example.com")
     let noteOnly = try info("Work", nil)
     #expect(noteOnly.displayName == "Work" && noteOnly.detail == nil)
-    let emailOnly = try info(nil, "lisa.w@x.com")
-    #expect(emailOnly.displayName == "lisa.w" && emailOnly.detail == "lisa.w@x.com")
+    let emailOnly = try info(nil, "sam.w@example.com")
+    #expect(emailOnly.displayName == "sam.w" && emailOnly.detail == "sam.w@example.com")
     let bare = try info(nil, nil)
     #expect(bare.displayName == "claude2" && bare.detail == nil)
+}
+
+// A snapshot can be old when refreshing keeps failing; what has reset by
+// now must not show as used or limited.
+@Test func staleWindowPastReset() throws {
+    #expect(Format.value(window(80, resets: "2026-10-30 09:00"), now: now, calendar: shanghai) == "0% (reset)")
+    #expect(window(80, resets: "2026-10-30 09:00").percent(now: now) == 0)
+    #expect(window(80, resets: "2026-10-30 11:00").percent(now: now) == 80)
+    let s = try Snapshot.decode(Data(panelFixture.utf8))
+    let limited = s.accounts[0]  // limit resets 1793527200
+    #expect(limited.isLimited(now: Date(timeIntervalSince1970: 1793527100)))
+    #expect(!limited.isLimited(now: Date(timeIntervalSince1970: 1793527300)))
+    let later = Date(timeIntervalSince1970: 1793345500)  // after claude3's 5h reset
+    #expect(Format.title(s, failed: false, now: later) == "0%")
 }

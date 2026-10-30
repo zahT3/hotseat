@@ -33,20 +33,43 @@ public struct HotseatCLI: Sendable {
     }
 
     /// Finds hotseat by absolute path: apps started from Finder or at login
-    /// do not get the shell's PATH.
+    /// do not get the shell's PATH. The copy inside the app comes last, so
+    /// an installed (possibly newer) CLI wins.
     public static func locate(
-        override: String?, home: URL,
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        override: String?, home: URL, bundled: String? = nil,
+        isExecutable: (String) -> Bool = isExecutableFile
     ) throws -> HotseatCLI {
         var tried: [String] = []
         if let override, !override.isEmpty {
             tried.append(override)
         }
         tried += [home.appendingPathComponent(".local/bin/hotseat").path, "/opt/homebrew/bin/hotseat", "/usr/local/bin/hotseat"]
+        if let bundled {
+            tried.append(bundled)
+        }
         guard let found = tried.first(where: isExecutable) else {
             throw HotseatError.notFound(tried: tried)
         }
         return HotseatCLI(executable: URL(fileURLWithPath: found))
+    }
+
+    /// A regular, executable file (a directory is "executable" to the
+    /// file system too).
+    public static func isExecutableFile(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    /// Copies the CLI shipped in the app to `to`, replacing it atomically.
+    public static func installBundled(from: URL, to: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let tmp = to.appendingPathExtension("tmp")
+        try? fm.removeItem(at: tmp)
+        try fm.copyItem(at: from, to: tmp)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        _ = try fm.replaceItemAt(to, withItemAt: tmp)
     }
 
     public func snapshot() async throws -> Snapshot {
@@ -102,6 +125,30 @@ public struct HotseatCLI: Sendable {
         _ = try await run(["icon", account] + (icon.map { [$0] } ?? []) + ["--json"], timeout: .seconds(30))
     }
 
+    public func setupStatus() async throws -> SetupStatus {
+        let data = try await run(["setup", "status", "--json"], timeout: .seconds(30))
+        do {
+            return try JSONDecoder().decode(SetupStatus.self, from: data)
+        } catch {
+            throw HotseatError.badOutput(String(String(decoding: data, as: UTF8.self).prefix(200)))
+        }
+    }
+
+    /// The CLI's version; every hotseat version answers this.
+    public func version() async throws -> String {
+        let data = try await run(["version", "--json"], timeout: .seconds(15))
+        struct V: Decodable { var version: String }
+        guard let v = try? JSONDecoder().decode(V.self, from: data) else {
+            throw HotseatError.badOutput(String(String(decoding: data, as: UTF8.self).prefix(200)))
+        }
+        return v.version
+    }
+
+    /// Runs one setup command, e.g. ["shim", "install"].
+    public func runStep(_ args: [String]) async throws {
+        _ = try await run(args, timeout: .seconds(120))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)
@@ -151,6 +198,12 @@ public struct HotseatCLI: Sendable {
         let seconds = Int(timeout.components.seconds)
         if exited.wait(timeout: .now() + .seconds(seconds)) == .timedOut {
             p.terminate()
+            // A process that ignores SIGTERM would keep running (and, for
+            // `use`, keep switching) after the app gave up on it.
+            if exited.wait(timeout: .now() + .seconds(3)) == .timedOut {
+                kill(p.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + .seconds(1))
+            }
             throw HotseatError.timedOut(seconds: seconds)
         }
         drained.wait()

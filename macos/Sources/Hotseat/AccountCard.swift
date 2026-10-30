@@ -48,7 +48,7 @@ struct AccountCard: View {
                 if let problem = info.loginProblem, !problem.isEmpty {
                     warning("CLI login: " + problem, symbol: "person.crop.circle.badge.exclamationmark", color: .red)
                 }
-                if info.limitActive {
+                if info.isLimited(now: now) {
                     warning(Format.limit(info.limit, now: now), symbol: "exclamationmark.octagon.fill", color: .red)
                 }
                 if let problem = info.desktopProblem, !problem.isEmpty {
@@ -82,7 +82,7 @@ struct AccountCard: View {
         HStack(spacing: 8) {
             Text(label).font(.system(size: 12)).foregroundStyle(.secondary)
                 .frame(width: 20, alignment: .leading)
-            UsageBar(fraction: w.map { $0.reset ? 0 : $0.usedPercent / 100 })
+            UsageBar(fraction: w.map { $0.percent(now: now) / 100 })
             Text(Format.value(w, now: now)).font(.system(size: 12)).monospacedDigit()
                 .frame(width: 118, alignment: .trailing)
         }

@@ -1,0 +1,36 @@
+#!/bin/sh
+# A stand-in for the hotseat CLI that prints made-up accounts, for README
+# screenshots. Point the app at it:
+#   defaults write io.github.zahT3.hotseat hotseatPath "$PWD/macos/demo/hotseat-demo"
+# and undo with: defaults delete io.github.zahT3.hotseat hotseatPath
+now=$(date +%s)
+case "$1 $2" in
+"panel --json")
+  cat <<JSON
+{"generatedAt": $now, "current": "work", "recommend": "side",
+ "desktop": {"managed": true, "active": "work", "running": true, "runningKnown": true, "pendingRecovery": false},
+ "accounts": [
+  {"account": "work", "current": true, "note": "Work", "email": "sam@example.com", "icon": "briefcase.fill",
+   "configDir": "/Users/sam/.claude-work", "desktop": "active", "limitActive": false, "limit": null,
+   "fiveHour": {"usedPercent": 42, "resetsAt": $((now + 7800)), "observedAt": $((now - 40)), "source": "statusline", "reset": false},
+   "sevenDay": {"usedPercent": 61, "resetsAt": $((now + 302400)), "observedAt": $((now - 40)), "source": "statusline", "reset": false}},
+  {"account": "claude", "current": false, "note": "Personal", "email": "sam.personal@example.com", "icon": "house.fill",
+   "configDir": "/Users/sam/.claude", "desktop": "parked", "limitActive": true,
+   "limit": {"message": "You've hit your weekly limit", "resetsAt": $((now + 129600)), "observedAt": $((now - 3600))},
+   "fiveHour": {"usedPercent": 100, "resetsAt": $((now + 5400)), "observedAt": $((now - 3600)), "source": "statusline", "reset": false},
+   "sevenDay": {"usedPercent": 100, "resetsAt": $((now + 129600)), "observedAt": $((now - 3600)), "source": "statusline", "reset": false}},
+  {"account": "side", "current": false, "email": "sam.side@example.com",
+   "configDir": "/Users/sam/.claude-side", "desktop": "parked", "desktopProblem": "not logged in yet", "limitActive": false, "limit": null,
+   "fiveHour": {"usedPercent": 8, "resetsAt": $((now + 15000)), "observedAt": $((now - 7200)), "source": "statusline", "reset": false},
+   "sevenDay": {"usedPercent": 23, "resetsAt": $((now + 500000)), "observedAt": $((now - 7200)), "source": "statusline", "reset": false}}
+ ]}
+JSON
+  ;;
+"version --json")
+  echo '{"version":"0.1.0"}'
+  ;;
+"setup status")
+  echo '{"version":"0.1.0","accounts":3,"loginsFound":3,"shareActions":0,"shim":true,"statusline":false,"hook":false,"desktop":"adopted"}'
+  ;;
+*) exit 0 ;;
+esac

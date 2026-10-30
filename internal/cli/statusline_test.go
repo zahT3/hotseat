@@ -99,8 +99,8 @@ func TestStatuslineCorruptRegistry(t *testing.T) {
 func TestStatuslineShowsNoteThenEmailName(t *testing.T) {
 	p := statusSetup(t)
 	testutil.WriteFile(t, filepath.Join(p.Home, ".claude2", ".claude.json"),
-		`{"oauthAccount":{"accountUuid":"b2","organizationUuid":"o2","emailAddress":"lisa.w@example.com"}}`)
-	if _, out := statusline(t, rlInput); strings.TrimSpace(out) != "lisa.w · 5h 16% · 7d 12%" {
+		`{"oauthAccount":{"accountUuid":"b2","organizationUuid":"o2","emailAddress":"sam.w@example.com"}}`)
+	if _, out := statusline(t, rlInput); strings.TrimSpace(out) != "sam.w · 5h 16% · 7d 12%" {
 		t.Errorf("email name: %q", out)
 	}
 	run(t, "note", "claude2", "Work")

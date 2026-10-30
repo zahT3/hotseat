@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ var selfCommand = func() (string, error) {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	return shellq.Quote(exe), nil
+	return shellq.Quote(stablePath(exe)), nil
 }
 
 // isOurs reports whether a settings.json command runs some hotseat binary
@@ -82,6 +83,19 @@ func firstWord(s string) (word, rest string, ok bool) {
 
 func settingsPath(p paths.Paths) string { return filepath.Join(p.CoreDir(), "settings.json") }
 
+// ensureSettings creates an empty settings.json for a Claude Code that has
+// never written one (common on a fresh Mac), so installing can edit it.
+func ensureSettings(p paths.Paths) error {
+	file := settingsPath(p)
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(file, []byte("{}\n"), 0o644)
+}
+
 func settingsBackup(p paths.Paths) string {
 	return filepath.Join(p.BackupsDir(), "settings-"+time.Now().Format("20060102-150405.000000")+".json")
 }
@@ -99,6 +113,11 @@ func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer
 	if len(args) != 1 || (args[0] != "install" && args[0] != "uninstall") {
 		fmt.Fprintln(stderr, "usage: hotseat statusline [install|uninstall]")
 		return 1
+	}
+	if args[0] == "install" {
+		if err := ensureSettings(p); err != nil {
+			return fail(stderr, err)
+		}
 	}
 	file := settingsPath(p)
 	current, raw, err := settings.StatusLineCommand(file)
@@ -126,30 +145,82 @@ func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer
 			"installed the Hotseat status line; running sessions pick it up on their own")
 	}
 
+	if err := statuslineUninstall(p); err != nil {
+		return fail(stderr, err)
+	}
+	return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the Hotseat status line")
+}
+
+// leftAsIs is an uninstall step that found the user's own change and kept it.
+type leftAsIs string
+
+func (e leftAsIs) Error() string { return string(e) }
+
+// errNotOurs means the user changed the setting since Hotseat installed it.
+var errNotOurs = leftAsIs("statusLine is not Hotseat's (changed since install); left as is")
+
+// statuslineUninstall puts back the status line the user had before.
+func statuslineUninstall(p paths.Paths) error {
+	file := settingsPath(p)
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil // never installed: nothing to take out
+	}
+	current, raw, err := settings.StatusLineCommand(file)
+	if err != nil {
+		return err
+	}
 	var c chain
 	b, err := os.ReadFile(p.ChainFile())
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(b, &c); err != nil {
-			return fail(stderr, err)
+			return err
 		}
 	case !errors.Is(err, os.ErrNotExist):
-		return fail(stderr, err)
+		return err
 	}
 	if raw != nil && !isOurs(current, "statusline") {
-		return fail(stderr, errors.New("statusLine is not Hotseat's (changed since install); left as is"))
+		return errNotOurs
+	}
+	if raw == nil && c.Previous != "" {
+		// The user deleted the status line since install; putting their
+		// old one back would undo that.
+		if err := os.Remove(p.ChainFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return leftAsIs("statusLine was removed since install; left as is")
 	}
 	var previous json.RawMessage
 	if c.Previous != "" {
 		previous = json.RawMessage(c.Previous)
 	}
 	if err := settings.RestoreStatusLine(file, previous, settingsBackup(p)); err != nil {
-		return fail(stderr, err)
+		return err
 	}
 	if err := os.Remove(p.ChainFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fail(stderr, err)
+		return err
 	}
-	return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the Hotseat status line")
+	return nil
+}
+
+// hookUninstall removes every StopFailure hook that runs hotseat.
+func hookUninstall(p paths.Paths) error {
+	file := settingsPath(p)
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	cmds, err := settings.HookCommands(file, "StopFailure")
+	if err != nil {
+		return err
+	}
+	for _, c := range cmds {
+		if isOurs(c, "hook stop-failure") {
+			if err := settings.RemoveHook(file, "StopFailure", c, settingsBackup(p)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
@@ -162,6 +233,9 @@ func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	file := settingsPath(p)
 	switch args[0] {
 	case "install":
+		if err := ensureSettings(p); err != nil {
+			return fail(stderr, err)
+		}
 		self, err := selfCommand()
 		if err != nil {
 			return fail(stderr, err)
@@ -185,16 +259,8 @@ func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return report(stdout, stderr, jsonOut, map[string]string{"hook": self + " hook stop-failure"},
 			"installed the StopFailure hook (rate_limit)")
 	case "uninstall":
-		cmds, err := settings.HookCommands(file, "StopFailure")
-		if err != nil {
+		if err := hookUninstall(p); err != nil {
 			return fail(stderr, err)
-		}
-		for _, c := range cmds {
-			if isOurs(c, "hook stop-failure") {
-				if err := settings.RemoveHook(file, "StopFailure", c, settingsBackup(p)); err != nil {
-					return fail(stderr, err)
-				}
-			}
 		}
 		return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the StopFailure hook")
 	case "stop-failure":
@@ -211,4 +277,12 @@ func report(stdout, stderr io.Writer, jsonOut bool, v any, text string) int {
 	}
 	fmt.Fprintln(stdout, text)
 	return 0
+}
+
+var cellarRe = regexp.MustCompile(`^(.*)/Cellar/([^/]+)/[^/]+/(.*)$`)
+
+// stablePath turns a Homebrew Cellar path, which changes with every upgrade
+// and is deleted by cleanup, into the formula's stable opt link.
+func stablePath(p string) string {
+	return cellarRe.ReplaceAllString(p, "$1/opt/$2/$3")
 }

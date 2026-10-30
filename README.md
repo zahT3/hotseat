@@ -1,107 +1,181 @@
 # Hotseat
 
-Use several personal Claude accounts on one Mac without your work changing when you switch. Accounts are pluggable; sessions, settings, skills and history stay in one place.
+**Claude account switcher for macOS: switch accounts, keep your place.**
 
-Status: early. macOS only. Covers the Claude Code CLI, Claude Desktop and a menu bar app.
+Hotseat is for people who have more than one Claude account, such as work and personal. It switches Claude Code and Claude Desktop between them in one click. Your sessions, settings, skills and history stay where they are, so a conversation you started under one account can be continued under another. It never touches your login tokens.
 
-## How it works
+![The Hotseat menu](docs/images/menu.png)
 
-Claude Code officially supports one config dir per account via `CLAUDE_CONFIG_DIR`, and keeps each dir's login in its own keychain entry. Hotseat builds on that:
+macOS 14 or later. Free and open source (MIT). Not affiliated with Anthropic.
 
-- `~/.claude` holds the single real copy of your work data (`projects/`, `history.jsonl`, `file-history/`, `skills/`, `settings.json`, ...).
-- Every other account dir (`~/.claude2`, `~/.claude-work`, ...) links those entries back to `~/.claude` and keeps only its own login and caches.
-- A small `claude` shim follows the account you pick with `hotseat use`, so `claude --resume` continues the same session on another account's quota.
+## Why
 
-## What Hotseat never does
+Switching Claude accounts by hand means logging out and back in. You lose your place, the Code session list in Claude Desktop belongs to one account only, and `claude --resume` in a second config dir sees none of your history. Hotseat keeps one workspace and lets accounts take turns in it, like players on a hotseat.
 
-- It never reads, copies or stores tokens or credentials: not `.credentials.json`, not the keychain, not `CLAUDE_CODE_OAUTH_TOKEN`. From `.claude.json` it reads only the account and organization IDs, the `mcpServers` key, and the email address (shown in the menu bar app to tell accounts apart). Logins always go through Claude's own `claude auth login`.
-- It never switches accounts on its own. Every switch is a command you run.
-- It never deletes your data. Anything it replaces is moved into a backup you can roll back.
+## What you get
+
+- **A menu bar view of every account.** It shows 5-hour and weekly usage, when each resets, how old the numbers are, and which account the terminal (CLI) and Claude Desktop each use.
+- **One-click switching.** Click an account to move both the CLI and Claude Desktop to it. Use its **CLI** or **Desktop** button to move just one of them. Desktop restarts on the session you were in. The Code session list is the same for every account.
+- **Shared work data.** Every account sees the same `projects/`, history, settings, skills and MCP servers, so `claude --resume` works across accounts.
+- **Continue where you were.** When a CLI session stops on a usage limit, a dialog offers to reopen that session under another of your accounts. Nothing switches until you click.
+- **Names and avatars.** Accounts show your own note (for example "Work") or the email's name part. Pick a symbol for each one in Settings.
+- **Guided setup and clean uninstall.** The app walks you through setup and says what each step changes. `hotseat uninstall` takes it all back out.
+
+![Settings](docs/images/settings.png)
 
 ## Install
 
+**Homebrew.** This builds on your Mac, so macOS does not block the app.
+
 ```sh
-go build -o ~/.local/bin/hotseat ./cmd/hotseat
+brew install zahT3/tap/hotseat
+mkdir -p ~/Applications
+cp -R "$(brew --prefix)/opt/hotseat/Hotseat.app" ~/Applications/
+open ~/Applications/Hotseat.app
 ```
 
-## Use
+**Download.** Get `Hotseat-<version>-macos.zip` from [Releases](https://github.com/zahT3/hotseat/releases), unzip it, move `Hotseat.app` to `~/Applications` (create the folder if it does not exist), then run once:
+
+```sh
+xattr -dr com.apple.quarantine ~/Applications/Hotseat.app
+```
+
+Hotseat is not notarized by Apple (that costs money, and Hotseat is free). Without that command, macOS refuses to open an app downloaded from the internet.
+
+**From source.** You need Go 1.26 and the Xcode Command Line Tools. Xcode itself is not needed.
+
+```sh
+go build -o ~/.local/bin/hotseat ./cmd/hotseat
+macos/build-app.sh --install
+```
+
+## Quick start
+
+Open Hotseat. The Setup window lists each step, says what it changes, and runs it when you click **Run**:
+
+![Setup](docs/images/setup.png)
+
+1. Install the `hotseat` command line tool (the app carries it).
+2. Find your Claude logins (`~/.claude`, `~/.claude2`, `~/.claude-work`, ...). No logins yet? Run `claude` once and log in.
+3. Share work data between them.
+4. Make new terminals start `claude` as the account you pick.
+5. Record usage and offer to continue a session under another account when one stops on a limit.
+6. Let Hotseat manage Claude Desktop.
+
+Add more accounts in **Settings → Accounts → Add Account…**. Terminal opens with Claude's own login.
+
+The command line tool is installed to `~/.local/bin/hotseat`. If `hotseat` is not found in Terminal, add that folder to your PATH, for example `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`.
+
+## How it works
+
+Claude Code supports one config dir per account (`CLAUDE_CONFIG_DIR`) and keeps each dir's login in its own keychain entry. Hotseat builds on that:
+
+- `~/.claude` holds the single real copy of your work data (`projects/`, `history.jsonl`, `file-history/`, `skills/`, `settings.json`, ...). Every other account dir links those entries back to `~/.claude` and keeps only its own login and caches.
+- A small `claude` shim follows the account you pick. Aliases that set `CLAUDE_CONFIG_DIR` themselves, such as `alias claude2='CLAUDE_CONFIG_DIR=~/.claude2 claude'`, keep a terminal pinned to one account.
+- Claude Desktop holds one login at a time, so each account gets its own complete Desktop data dir.
+  - The current account's dir sits at the real path, `~/Library/Application Support/Claude`. Opening Desktop from the Dock, from Spotlight or after an update always opens the current account.
+  - The others are parked in `~/.config/hotseat/desktop/profiles/<account>/`.
+  - A switch quits Desktop (it waits; it never force-kills) and carries the Code session list, MCP servers, preferences, extensions and scratch work over. It then swaps the two dirs and reopens Desktop on your session through Claude's `claude://resume` link.
+- Usage numbers come only from what Claude Code hands its status line and from Claude Desktop's local usage history. An account you have not used for a while shows its last known numbers and how old they are.
+
+## What Hotseat never does
+
+- **It never reads, copies or stores tokens or credentials.** That covers `.credentials.json`, the keychain, `CLAUDE_CODE_OAUTH_TOKEN`, and Desktop's cookies and storage. From `.claude.json` it reads only the account and organization IDs, the `mcpServers` key and the email address. Logins always go through Claude's own login.
+- **It never switches accounts on its own.** Every switch is a click or a command. There is no rotation and no account pool, and no proxy.
+- **It never deletes your data.** Anything it replaces or removes goes into `~/.config/hotseat/backups/`.
+- **The app makes no network requests.** It runs the `hotseat` CLI and nothing else.
+
+## Command line
+
+```sh
+hotseat accounts                 # registered accounts; * marks the current one
+hotseat use work [--yes]         # CLI and Desktop to `work` (--yes lets it restart a running Desktop)
+hotseat use work --cli-only      # only new terminal sessions
+hotseat desktop switch work      # only Claude Desktop
+hotseat usage                    # 5-hour and weekly usage, reset times, data age
+hotseat add work                 # new account: config dir + Claude's own login
+hotseat remove work --yes        # sign out, move its files into a backup
+hotseat note work "Work"         # your label for it
+hotseat icon work briefcase.fill # an SF Symbol name or an emoji
+hotseat doctor                   # drift, logins that changed, setup problems
+hotseat setup status             # which setup steps are done
+hotseat uninstall --yes          # remove the shim, status line and hook
+```
+
+<details>
+<summary>All commands</summary>
 
 ```sh
 hotseat init                 # find existing ~/.claude* logins and register them
-hotseat accounts             # list them; * marks the current account
 hotseat share plan           # show what would be linked or merged (read-only)
 hotseat share apply          # do it; refuses while any claude process is running
 hotseat share backups        # list backups
 hotseat share rollback <id>  # undo an apply
-hotseat shim install         # put the claude shim first on PATH via ~/.zshrc
-hotseat use claude2          # new claude sessions now use claude2
-hotseat add work             # new config dir + official login, linked to shared work data
-hotseat doctor               # report drift, unknown entries, and setup problems
-hotseat note claude2 Work     # your own label for an account, shown in the menu bar app
+hotseat share set <name> shared|local
+hotseat shim install|uninstall
+hotseat statusline install|uninstall
+hotseat hook install|uninstall
+hotseat desktop adopt [<account> <dir>]
+hotseat desktop add <account>
+hotseat desktop status
+hotseat desktop recover      # finish or undo a switch that was interrupted
+hotseat panel --json         # everything the menu bar app shows
 ```
 
-`share apply` merges each account's `history.jsonl` into the shared one and copies entries that only exist in an account dir into `~/.claude`. When both sides have a different version of the same file, the shared copy wins and the account's copy stays in the backup; `apply` lists those paths.
+Every command accepts `--json`.
 
-Roll back with every claude session closed (it refuses otherwise, like apply). A rollback puts each file back as it was before the apply. Files that changed since then, such as `history.jsonl` with prompts typed after the apply, are moved into `~/.config/hotseat/backups/<id>/rollback-removed/` rather than overwritten, and rollback prints where each one went. For `.claude.json` only the `mcpServers` key is restored; everything Claude Code changed since stays. If a rollback stops on an error, fix the cause and run it again; it continues where it stopped.
+</details>
 
-## Usage and limits
+**Sharing details.** `share apply` merges each account's `history.jsonl` into the shared one and copies entries that only exist in an account dir into `~/.claude`. When both sides have a different version of a file, the shared copy wins, the account's copy stays in the backup, and `apply` lists those paths. MCP servers are synced as a union: every account gets every server.
+
+**Rolling back.** Close every claude session first. A rollback puts each file back as it was before the apply. Files that changed since then are moved into `backups/<id>/rollback-removed/` instead of being overwritten. For `.claude.json`, only the `mcpServers` key is restored.
+
+**In the terminal**, the status line reads `Work · 5h 42% · 7d 61%`. If you had your own status line, it is kept and shown first.
+
+## Uninstall
 
 ```sh
-hotseat statusline install  # adds a status line to every claude session; keeps yours, shown first
-hotseat hook install        # registers a StopFailure hook for rate limits
-hotseat usage               # 5-hour and 7-day usage, reset times and data age per account
+hotseat uninstall --yes   # removes the claude shim, the status line and the StopFailure hook
 ```
 
-The status line shows `claude2 · 5h 16% · 7d 12%` and records those numbers. They come only from what Claude Code hands to the status line and from Claude Desktop's local usage history, so an account you have not used for a while shows its last known numbers and how old they are; a window whose reset time has passed shows 0%.
+Your data stays:
+- the links between `~/.claude*` dirs (undo them with `hotseat share backups` and `hotseat share rollback <id>`);
+- `~/.config/hotseat` (backups, parked Claude Desktop profiles, usage records);
+- the app itself.
 
-When a CLI session stops on a usage limit, the hook records it and opens a dialog offering to continue the same session as the account with the most quota left. Nothing switches unless you click Continue; then that account becomes current and a new Terminal window runs `claude --resume <session>`. Don't keep typing in the old window afterwards. The first message on the new account reads the whole conversation again without cache, and the dialog says roughly how big that is.
+A status line you changed after installing Hotseat is left as it is.
 
-## Claude Desktop
+## FAQ
 
-Claude Desktop holds one login at a time. Hotseat gives every account its own complete Desktop data dir: the current account's sits at the real path `~/Library/Application Support/Claude`, the others are parked in `~/.config/hotseat/desktop/profiles/<account>/`. Opening Desktop from the Dock, Spotlight or a link, or after an auto-update, therefore always opens the current account.
+**Is using several accounts allowed?** Read Anthropic's terms and decide for yourself; Hotseat cannot answer this for you. Here is what they said when this was written (October 2026):
+- The [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) forbid sharing your login or credentials with anyone and "bypassing any of our systems or protective measures". They do not mention multiple accounts.
+- The [Usage Policy](https://www.anthropic.com/legal/aup) forbids creating multiple accounts "to avoid detection", using another account to get around a ban, and intentionally bypassing "capabilities, restrictions, or guardrails established within our products".
 
-```sh
-hotseat desktop adopt                     # manage the Desktop data that is there now
-hotseat desktop adopt work ~/path/to/dir  # park a data dir that is logged in to `work`
-hotseat desktop add work                  # empty profile for `work`; log in once in the Desktop that opens
-hotseat desktop switch work --resume current
-hotseat desktop status                    # which profile is where, and whether its login matches
-hotseat desktop recover                   # finish or undo a switch that was interrupted
-hotseat use work --yes                    # CLI and Desktop together
-```
+Hotseat is meant for people who legitimately have more than one account, such as work and personal, and want one workspace across them. It is not meant for pooling accounts to get around usage limits.
 
-A switch quits Desktop (it waits; it never force-kills), carries Desktop's own work data over to the target profile, swaps the two dirs, and reopens Desktop on the session you were in through Claude's `claude://resume` link. What is carried over: the Code session list (merged across all accounts, newest copy wins, deleted sessions stay deleted), MCP servers and preferences, extensions, session presets and scratch work. What is not: the login (Cookies, `config.json`, Local Storage), which is exactly what makes each profile a different account. Hotseat reads only `lastKnownAccountUuid` from `config.json` to check which account a profile is logged in to.
+**Will a Claude Desktop update break it?** Desktop's data layout is not a public interface. Hotseat checks which account each profile is logged in to before every switch, and `hotseat doctor` reports anything it does not recognise. Updates so far have not needed changes, but one could.
 
-Without `--yes`, `hotseat use` leaves a running Desktop alone and tells you; a closed Desktop is switched quietly and opens as the new account next time. When a Desktop session hits a usage limit, the dialog offers to switch Desktop to another account and continue that session there.
+**How is it different from other account switchers?** Most switchers swap tokens or the login only, so each account still sees its own history. Hotseat keeps one shared workspace: the same sessions, settings and Desktop session list on every account. It does this without ever reading a token.
 
-Don't use Log out inside Claude Desktop to change accounts: it signs that account out on Anthropic's side, and its Hotseat profile has to log in again. Switch with Hotseat instead.
+**Why one config dir per account?** Claude Code stores one login per config dir. The dirs are tiny, because the work data is linked to `~/.claude`.
 
-Hotseat does not use symlinks or `--user-data-dir` for this: symlinked data breaks Cowork's file sharing and recent Desktop versions refuse to save sessions into a symlinked folder, and `--user-data-dir` is lost whenever Desktop relaunches itself after an update.
+**Do not use Log out in Claude Desktop to change accounts.** It signs that account out on Anthropic's side, and its profile has to log in again. Switch with Hotseat instead.
 
-MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
+**Windows or Linux?** Not yet. Hotseat is macOS only.
 
-Every command accepts `--json` for scripts and the menu bar app.
-
-Entries Hotseat does not recognise are left alone and reported by `hotseat doctor`. Classify one with `hotseat share set <name> shared|local`. `plugins/` and `sessions/` stay per account for now.
-
-## Menu bar app
-
-`macos/` holds a small menu bar app. It shows every account's 5-hour and 7-day usage, when each resets, how old that data is, which account is current and which one Claude Desktop is on. Click an account to switch to it (the same as `hotseat use <account> --yes`). If Desktop is running and has to restart, it asks first.
-
-```sh
-macos/build-app.sh            # builds and ad-hoc signs macos/build/Hotseat.app
-macos/build-app.sh --install  # also replaces ~/Applications/Hotseat.app and opens it
-macos/test.sh                 # Swift tests
-```
-
-The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu.
+**The app does not see my `HOTSEAT_HOME`.** Apps do not inherit variables set in your shell. If you use one, point the app at a wrapper script: `defaults write io.github.zahT3.hotseat hotseatPath /path/to/script`.
 
 ## Files
 
-- `~/.config/hotseat/accounts.json`: registered accounts (override the dir with `HOTSEAT_HOME`)
+- `~/.config/hotseat/accounts.json`: registered accounts, notes and icons (override the dir with `HOTSEAT_HOME`)
 - `~/.config/hotseat/current`: the current account
-- `~/.config/hotseat/backups/`: one dir per apply, with a `manifest.json` used by rollback
-- `~/.config/hotseat/bin/claude`: the shim, a symlink to `hotseat`
+- `~/.config/hotseat/backups/`: everything Hotseat replaced or removed
+- `~/.config/hotseat/desktop/`: parked Claude Desktop profiles and switch state
+- `~/.config/hotseat/bin/claude`: the shim
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues as described in [SECURITY.md](SECURITY.md).
 
 ## License
 

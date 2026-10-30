@@ -129,3 +129,44 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     try await cli.setIcon("claude2", "briefcase.fill")
     try await cli.setIcon("claude2", nil)
 }
+
+@Test func locateFallsBackToBundled() throws {
+    let cli = try HotseatCLI.locate(override: nil, home: home, bundled: "/Applications/Hotseat.app/Contents/Resources/bin/hotseat",
+                                    isExecutable: { $0.hasSuffix("Resources/bin/hotseat") })
+    #expect(cli.executable.path == "/Applications/Hotseat.app/Contents/Resources/bin/hotseat")
+}
+
+@Test func locateSkipsDirectories() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let found = try? HotseatCLI.locate(override: dir.path, home: dir, bundled: nil)
+    #expect(found?.executable.path != dir.path)
+}
+
+@Test func installBundledCopies() throws {
+    let src = try fakeHotseat("echo bundled")
+    let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("bin/hotseat")
+    try HotseatCLI.installBundled(from: src.executable, to: dest)
+    #expect(try Data(contentsOf: dest) == Data(contentsOf: src.executable))
+    let perms = try FileManager.default.attributesOfItem(atPath: dest.path)[.posixPermissions] as? Int
+    #expect(perms == 0o755)
+}
+
+@Test func timeoutKillsStubbornProcess() async throws {
+    let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let cli = try fakeHotseat("echo $$ > '\(pidFile.path)'; trap '' TERM; while :; do sleep 1; done")
+    let start = Date()
+    await #expect(throws: HotseatError.timedOut(seconds: 1)) {
+        _ = try await cli.run(["panel"], timeout: .seconds(1))
+    }
+    #expect(Date().timeIntervalSince(start) < 6)
+    let pid = Int32(try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
+    #expect(kill(pid, 0) != 0)  // gone, not just asked to go
+}
+
+@Test func versionFromCLI() async throws {
+    let cli = try fakeHotseat("""
+    [ "$*" = "version --json" ] && echo '{"version":"0.1.0"}' || exit 9
+    """)
+    #expect(try await cli.version() == "0.1.0")
+}
