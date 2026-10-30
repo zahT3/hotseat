@@ -74,8 +74,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         do {
             let cli = try cli()
             setup.usingBundled = cli.executable.path == bundledCLI.path
-            setup.status = try await cli.setupStatus()
+            setup.cliPath = cli.executable.path
+            setup.cliVersion = try? await cli.version()
             setup.loadError = nil
+            do {
+                setup.status = try await cli.setupStatus()
+            } catch {
+                // An older CLI without `setup`: the CLI step offers the update.
+                setup.status = nil
+            }
         } catch {
             setup.loadError = hotseatError(error).message
         }

@@ -163,3 +163,10 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     let pid = Int32(try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
     #expect(kill(pid, 0) != 0)  // gone, not just asked to go
 }
+
+@Test func versionFromCLI() async throws {
+    let cli = try fakeHotseat("""
+    [ "$*" = "version --json" ] && echo '{"version":"0.1.0"}' || exit 9
+    """)
+    #expect(try await cli.version() == "0.1.0")
+}

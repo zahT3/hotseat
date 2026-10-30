@@ -16,7 +16,9 @@ class Hotseat < Formula
     system "go", "build", *std_go_args(ldflags: "-s -w"), "./cmd/hotseat"
     # Built here rather than downloaded, the app carries no quarantine flag.
     cd "macos" do
-      with_env(HOTSEAT_BIN: bin/"hotseat") do
+      # Homebrew builds in a sandbox, in which SwiftPM cannot sandbox its
+      # manifest compile.
+      with_env(HOTSEAT_BIN: bin/"hotseat", SWIFT_FLAGS: "--disable-sandbox") do
         system "./build-app.sh"
       end
       prefix.install "build/Hotseat.app"
@@ -26,6 +28,7 @@ class Hotseat < Formula
   def caveats
     <<~EOS
       To use the menu bar app:
+        mkdir -p ~/Applications
         cp -R #{opt_prefix}/Hotseat.app ~/Applications/
         open ~/Applications/Hotseat.app
       It walks you through setup on first launch.

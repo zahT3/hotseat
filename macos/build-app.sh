@@ -18,7 +18,9 @@ else
 fi
 
 # SWIFT_ARCHS="arm64 x86_64" builds a universal app (release builds).
-arch_flags=""
+# SWIFT_FLAGS passes extra flags, e.g. --disable-sandbox when this runs
+# inside another sandbox (Homebrew), where SwiftPM cannot apply its own.
+arch_flags="${SWIFT_FLAGS:-}"
 for a in ${SWIFT_ARCHS:-}; do
   arch_flags="$arch_flags --arch $a"
 done

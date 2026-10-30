@@ -8,14 +8,21 @@ final class SetupModel {
     var status: SetupStatus?
     var usingBundled = false
     var bundledVersion = ""
+    var cliVersion: String?
+    var cliPath: String?
     /// The step being run, if any.
     var running: String?
     var errors: [String: String] = [:]
     var loadError: String?
 
+    /// The CLI step, then the CLI's own steps once it can report them.
     var steps: [SetupStep] {
-        status?.steps(bundledVersion: bundledVersion, usingBundled: usingBundled) ?? []
+        let cli = SetupStep.cli(installedVersion: cliVersion, installedPath: cliPath, usingBundled: usingBundled,
+                                statusWorks: status != nil, bundledVersion: bundledVersion)
+        return [cli] + (status?.steps() ?? [])
     }
+
+    var cliReady: Bool { steps.first?.done == true }
 }
 
 struct SetupView: View {
@@ -41,7 +48,7 @@ struct SetupView: View {
             }
             Spacer(minLength: 0)
             HStack {
-                Button("Check Again", action: reload)
+                Button("Check Again", action: reload).disabled(model.running != nil)
                 Spacer()
                 Button("Done", action: close).keyboardShortcut(.defaultAction)
             }
@@ -69,8 +76,12 @@ struct SetupView: View {
             if model.running == step.id {
                 ProgressView().controlSize(.small)
             } else if !step.done {
+                // Later steps write the CLI's path into settings.json and the
+                // shim, so it must be installed for good before they run.
                 Button("Run") { run(step) }
-                    .disabled(model.running != nil || (step.id == "desktop" && model.status?.desktop == "absent"))
+                    .disabled(model.running != nil
+                        || (step.id != "cli" && !model.cliReady)
+                        || (step.id == "desktop" && model.status?.desktop == "absent"))
             }
         }
         .padding(10)

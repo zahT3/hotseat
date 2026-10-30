@@ -91,12 +91,12 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
         return try JSONDecoder().decode(AccountInfo.self, from: Data(("{" + fields.joined(separator: ",") + "}").utf8))
     }
     // Hotseat's internal names (claude2...) only show when nothing else is known.
-    let both = try info("Work", "lisa.w@x.com")
-    #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com")
+    let both = try info("Work", "sam.w@example.com")
+    #expect(both.displayName == "Work" && both.detail == "sam.w@example.com")
     let noteOnly = try info("Work", nil)
     #expect(noteOnly.displayName == "Work" && noteOnly.detail == nil)
-    let emailOnly = try info(nil, "lisa.w@x.com")
-    #expect(emailOnly.displayName == "lisa.w" && emailOnly.detail == "lisa.w@x.com")
+    let emailOnly = try info(nil, "sam.w@example.com")
+    #expect(emailOnly.displayName == "sam.w" && emailOnly.detail == "sam.w@example.com")
     let bare = try info(nil, nil)
     #expect(bare.displayName == "claude2" && bare.detail == nil)
 }

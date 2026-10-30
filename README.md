@@ -2,7 +2,7 @@
 
 **Claude account switcher for macOS: switch accounts, keep your place.**
 
-Hotseat is for people who have more than one Claude account, such as work and personal. It switches Claude Code and Claude Desktop between them in one click. Your sessions, settings, skills and history stay put, so when one account runs out you continue the same conversation on another. It never touches your login tokens.
+Hotseat is for people who have more than one Claude account, such as work and personal. It switches Claude Code and Claude Desktop between them in one click. Your sessions, settings, skills and history stay where they are, so a conversation you started under one account can be continued under another. It never touches your login tokens.
 
 ![The Hotseat menu](docs/images/menu.png)
 
@@ -17,7 +17,7 @@ Switching Claude accounts by hand means logging out and back in. You lose your p
 - **A menu bar view of every account.** It shows 5-hour and weekly usage, when each resets, how old the numbers are, and which account the terminal (CLI) and Claude Desktop each use.
 - **One-click switching.** Click an account to move both the CLI and Claude Desktop to it. Use its **CLI** or **Desktop** button to move just one of them. Desktop restarts on the session you were in. The Code session list is the same for every account.
 - **Shared work data.** Every account sees the same `projects/`, history, settings, skills and MCP servers, so `claude --resume` works across accounts.
-- **Limit handoff.** When a CLI session hits a usage limit, a dialog offers to continue that session on the account with the most quota left. Nothing switches until you click.
+- **Continue where you were.** When a CLI session stops on a usage limit, a dialog offers to reopen that session under another of your accounts. Nothing switches until you click.
 - **Names and avatars.** Accounts show your own note (for example "Work") or the email's name part. Pick a symbol for each one in Settings.
 - **Guided setup and clean uninstall.** The app walks you through setup and says what each step changes. `hotseat uninstall` takes it all back out.
 
@@ -29,11 +29,12 @@ Switching Claude accounts by hand means logging out and back in. You lose your p
 
 ```sh
 brew install zahT3/tap/hotseat
+mkdir -p ~/Applications
 cp -R "$(brew --prefix)/opt/hotseat/Hotseat.app" ~/Applications/
 open ~/Applications/Hotseat.app
 ```
 
-**Download.** Get `Hotseat-<version>-macos.zip` from [Releases](https://github.com/zahT3/hotseat/releases), unzip it, move `Hotseat.app` to `~/Applications`, then run once:
+**Download.** Get `Hotseat-<version>-macos.zip` from [Releases](https://github.com/zahT3/hotseat/releases), unzip it, move `Hotseat.app` to `~/Applications` (create the folder if it does not exist), then run once:
 
 ```sh
 xattr -dr com.apple.quarantine ~/Applications/Hotseat.app
@@ -58,10 +59,12 @@ Open Hotseat. The Setup window lists each step, says what it changes, and runs i
 2. Find your Claude logins (`~/.claude`, `~/.claude2`, `~/.claude-work`, ...). No logins yet? Run `claude` once and log in.
 3. Share work data between them.
 4. Make new terminals start `claude` as the account you pick.
-5. Record usage and set up limit handoff.
+5. Record usage and offer to continue a session under another account when one stops on a limit.
 6. Let Hotseat manage Claude Desktop.
 
 Add more accounts in **Settings → Accounts → Add Account…**. Terminal opens with Claude's own login.
+
+The command line tool is installed to `~/.local/bin/hotseat`. If `hotseat` is not found in Terminal, add that folder to your PATH, for example `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc`.
 
 ## How it works
 
@@ -144,7 +147,11 @@ A status line you changed after installing Hotseat is left as it is.
 
 ## FAQ
 
-**Is using several accounts allowed?** Anthropic's [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) forbid sharing account credentials and "bypassing any of our systems or protective measures". They have no rule about holding more than one account. Hotseat is built for people who legitimately have several accounts, such as work and personal. It is not built for pooling accounts to get around limits. People have reported suspensions when many accounts run from one machine. Read the terms and judge for yourself. Hotseat does not change how Claude sees your usage.
+**Is using several accounts allowed?** Read Anthropic's terms and decide for yourself; Hotseat cannot answer this for you. Here is what they said when this was written (October 2026):
+- The [Consumer Terms](https://www.anthropic.com/legal/consumer-terms) forbid sharing your login or credentials with anyone and "bypassing any of our systems or protective measures". They do not mention multiple accounts.
+- The [Usage Policy](https://www.anthropic.com/legal/aup) forbids creating multiple accounts "to avoid detection", using another account to get around a ban, and intentionally bypassing "capabilities, restrictions, or guardrails established within our products".
+
+Hotseat is meant for people who legitimately have more than one account, such as work and personal, and want one workspace across them. It is not meant for pooling accounts to get around usage limits.
 
 **Will a Claude Desktop update break it?** Desktop's data layout is not a public interface. Hotseat checks which account each profile is logged in to before every switch, and `hotseat doctor` reports anything it does not recognise. Updates so far have not needed changes, but one could.
 

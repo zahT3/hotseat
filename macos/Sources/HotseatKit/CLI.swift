@@ -134,6 +134,16 @@ public struct HotseatCLI: Sendable {
         }
     }
 
+    /// The CLI's version; every hotseat version answers this.
+    public func version() async throws -> String {
+        let data = try await run(["version", "--json"], timeout: .seconds(15))
+        struct V: Decodable { var version: String }
+        guard let v = try? JSONDecoder().decode(V.self, from: data) else {
+            throw HotseatError.badOutput(String(String(decoding: data, as: UTF8.self).prefix(200)))
+        }
+        return v.version
+    }
+
     /// Runs one setup command, e.g. ["shim", "install"].
     public func runStep(_ args: [String]) async throws {
         _ = try await run(args, timeout: .seconds(120))
