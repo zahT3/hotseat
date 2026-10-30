@@ -49,3 +49,10 @@ func SetDesktopDriver(d desktop.Driver) func() {
 	desktopDriver = d
 	return func() { desktopDriver = old }
 }
+
+// SetAuthLogout replaces running `claude auth logout` for a config dir.
+func SetAuthLogout(fn func(dir string) error) func() {
+	old := authLogout
+	authLogout = func(dir, _ string) error { return fn(dir) }
+	return func() { authLogout = old }
+}

@@ -2,7 +2,7 @@
 
 Use several personal Claude accounts on one Mac without your work changing when you switch. Accounts are pluggable; sessions, settings, skills and history stay in one place.
 
-Status: early. macOS only. This first part covers the Claude Code CLI. Desktop support and a menu bar app come later.
+Status: early. macOS only. Covers the Claude Code CLI, Claude Desktop and a menu bar app.
 
 ## How it works
 
@@ -14,7 +14,7 @@ Claude Code officially supports one config dir per account via `CLAUDE_CONFIG_DI
 
 ## What Hotseat never does
 
-- It never reads, copies or stores tokens or credentials: not `.credentials.json`, not the keychain, not `CLAUDE_CODE_OAUTH_TOKEN`. From `.claude.json` it reads only the account and organization IDs and the `mcpServers` key. Logins always go through Claude's own `claude auth login`.
+- It never reads, copies or stores tokens or credentials: not `.credentials.json`, not the keychain, not `CLAUDE_CODE_OAUTH_TOKEN`. From `.claude.json` it reads only the account and organization IDs, the `mcpServers` key, and the email address (shown in the menu bar app to tell accounts apart). Logins always go through Claude's own `claude auth login`.
 - It never switches accounts on its own. Every switch is a command you run.
 - It never deletes your data. Anything it replaces is moved into a backup you can roll back.
 
@@ -37,6 +37,7 @@ hotseat shim install         # put the claude shim first on PATH via ~/.zshrc
 hotseat use claude2          # new claude sessions now use claude2
 hotseat add work             # new config dir + official login, linked to shared work data
 hotseat doctor               # report drift, unknown entries, and setup problems
+hotseat note claude2 Work     # your own label for an account, shown in the menu bar app
 ```
 
 `share apply` merges each account's `history.jsonl` into the shared one and copies entries that only exist in an account dir into `~/.claude`. When both sides have a different version of the same file, the shared copy wins and the account's copy stays in the backup; `apply` lists those paths.
@@ -79,9 +80,21 @@ Hotseat does not use symlinks or `--user-data-dir` for this: symlinked data brea
 
 MCP servers are synced as a union: every account gets every server, so a server removed from only one account comes back on the next apply.
 
-Every command accepts `--json` for scripts and the upcoming menu bar app.
+Every command accepts `--json` for scripts and the menu bar app.
 
 Entries Hotseat does not recognise are left alone and reported by `hotseat doctor`. Classify one with `hotseat share set <name> shared|local`. `plugins/` and `sessions/` stay per account for now.
+
+## Menu bar app
+
+`macos/` holds a small menu bar app. It shows every account's 5-hour and 7-day usage, when each resets, how old that data is, which account is current and which one Claude Desktop is on. Click an account to switch to it (the same as `hotseat use <account> --yes`). If Desktop is running and has to restart, it asks first.
+
+```sh
+macos/build-app.sh            # builds and ad-hoc signs macos/build/Hotseat.app
+macos/build-app.sh --install  # also replaces ~/Applications/Hotseat.app and opens it
+macos/test.sh                 # Swift tests
+```
+
+The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu.
 
 ## Files
 

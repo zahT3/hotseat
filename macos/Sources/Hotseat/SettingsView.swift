@@ -1,0 +1,187 @@
+import HotseatKit
+import SwiftUI
+
+struct SettingsActions {
+    let saveNote: (String, String) -> Void
+    let addAccount: () -> Void
+    let setUpDesktop: (String) -> Void
+    let remove: (String) -> Void
+    let setIcon: (String, String?) -> Void
+    let setLaunchAtLogin: (Bool) -> Void
+    let setAskBeforeDesktopRestart: (Bool) -> Void
+}
+
+struct SettingsView: View {
+    let model: AppModel
+    let actions: SettingsActions
+
+    var body: some View {
+        TabView {
+            AccountsSettings(model: model, actions: actions)
+                .tabItem { Label("Accounts", systemImage: "person.2") }
+            GeneralSettings(model: model, actions: actions)
+                .tabItem { Label("General", systemImage: "gearshape") }
+        }
+        .padding(16)
+        .frame(width: 600, height: 460)
+    }
+}
+
+struct AccountsSettings: View {
+    let model: AppModel
+    let actions: SettingsActions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(model.snapshot?.accounts ?? []) { a in
+                        AccountSettingsRow(info: a, model: model, actions: actions)
+                    }
+                }
+            }
+            HStack {
+                Button(action: actions.addAccount) {
+                    Label("Add Account…", systemImage: "plus")
+                }
+                Spacer()
+                if let error = model.lastError {
+                    Label(error.message, systemImage: "exclamationmark.triangle")
+                        .font(.system(size: 11)).foregroundStyle(.red).lineLimit(2)
+                }
+            }
+        }
+    }
+}
+
+struct AccountSettingsRow: View {
+    let info: AccountInfo
+    let model: AppModel
+    let actions: SettingsActions
+
+    private var draft: Binding<String> {
+        Binding(
+            get: { model.noteDrafts[info.account] ?? info.note ?? "" },
+            set: { model.noteDrafts[info.account] = $0 })
+    }
+
+    private var edited: Bool {
+        guard let d = model.noteDrafts[info.account] else { return false }
+        return d.trimmingCharacters(in: .whitespaces) != (info.note ?? "")
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Menu {
+                ForEach(iconChoices, id: \.self) { name in
+                    Button { actions.setIcon(info.account, name) } label: { Label(name, systemImage: name) }
+                }
+                Divider()
+                Button("Initial (default)") { actions.setIcon(info.account, nil) }
+            } label: {
+                Avatar(info: info, size: 36)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    TextField(info.email ?? info.account, text: draft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13))
+                        .onSubmit { actions.saveNote(info.account, draft.wrappedValue) }
+                    if edited {
+                        Button("Save") { actions.saveNote(info.account, draft.wrappedValue) }
+                    }
+                }
+                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
+                    row("Email", info.email ?? "—")
+                    row("Account", info.account)
+                    row("Config", (info.configDir ?? "—").replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    if let problem = info.loginProblem, !problem.isEmpty {
+                        GridRow {
+                            Text("Login").foregroundStyle(.secondary)
+                            Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                        }
+                    }
+                    GridRow {
+                        Text("Desktop").foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Text(desktopText)
+                            if info.desktop == "none" {
+                                Button("Set Up Desktop…") { actions.setUpDesktop(info.account) }
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                .font(.system(size: 12))
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: 4) {
+                    if info.current { Badge(text: "CLI", color: .accentColor) }
+                    if info.desktop == "active" { Badge(text: "Desktop", color: .accentColor) }
+                }
+                Button(role: .destructive) { actions.remove(info.account) } label: {
+                    Label("Remove…", systemImage: "trash")
+                }
+                .controlSize(.small)
+                .disabled(removeBlocker != nil)
+                .help(removeBlocker ?? "Sign this account out and move its files into a Hotseat backup")
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+    }
+
+    private var removeBlocker: String? {
+        if info.configDir == NSHomeDirectory() + "/.claude" {
+            return "The default account holds every account's shared work data"
+        }
+        if info.current { return "Switch the CLI to another account first" }
+        if info.desktop == "active" { return "Switch Claude Desktop to another account first" }
+        return nil
+    }
+
+    private var desktopText: String {
+        if let p = info.desktopProblem, !p.isEmpty {
+            return p == "not logged in yet" ? "Set up — switch to it and sign in in Claude Desktop" : p
+        }
+        switch info.desktop {
+        case "active": return "In use"
+        case "parked": return "Ready"
+        default: return "Not set up"
+        }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+        }
+    }
+}
+
+private let iconChoices = [
+    "person.fill", "briefcase.fill", "house.fill", "star.fill", "bolt.fill", "leaf.fill",
+    "flame.fill", "moon.fill", "sun.max.fill", "heart.fill", "graduationcap.fill", "hammer.fill",
+    "paintbrush.fill", "gamecontroller.fill", "airplane", "cup.and.saucer.fill",
+]
+
+struct GeneralSettings: View {
+    let model: AppModel
+    let actions: SettingsActions
+
+    var body: some View {
+        Form {
+            Toggle("Launch at Login", isOn: Binding(
+                get: { model.launchAtLogin }, set: { actions.setLaunchAtLogin($0) }))
+            Toggle("Ask before restarting Claude Desktop", isOn: Binding(
+                get: { model.askBeforeDesktopRestart }, set: { actions.setAskBeforeDesktopRestart($0) }))
+            LabeledContent("hotseat CLI", value: model.cliPath.isEmpty ? "not found" : model.cliPath)
+            LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")
+        }
+        .formStyle(.grouped)
+    }
+}

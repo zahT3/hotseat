@@ -26,6 +26,10 @@ var commands = map[string]command{
 	"handoff":    cmdHandoff,
 	"usage":      cmdUsage,
 	"desktop":    cmdDesktop,
+	"panel":      cmdPanel,
+	"note":       cmdNote,
+	"icon":       cmdIcon,
+	"remove":     cmdRemove,
 }
 
 func Run(args []string, stdout, stderr io.Writer) int {

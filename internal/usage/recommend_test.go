@@ -57,3 +57,29 @@ func TestRecommendNoneAvailable(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// A limit is over once the account is seen working again: a usage window
+// observed after the limit and below 100% (the reset time in the message
+// can be wrong or for another window).
+func TestLimitClearedByLaterObservation(t *testing.T) {
+	now := time.Unix(1_900_000_000, 0)
+	limit := &usage.LimitHit{ResetsAt: now.Unix() + 86400, ObservedAt: now.Unix() - 3600}
+	before := &usage.Window{UsedPercent: 40, ResetsAt: now.Unix() + 3600, ObservedAt: now.Unix() - 7200}
+	after := &usage.Window{UsedPercent: 40, ResetsAt: now.Unix() + 3600, ObservedAt: now.Unix() - 60}
+	full := &usage.Window{UsedPercent: 100, ResetsAt: now.Unix() + 3600, ObservedAt: now.Unix() - 60}
+	cases := []struct {
+		r    usage.Record
+		want bool
+	}{
+		{usage.Record{Limit: limit}, true},
+		{usage.Record{Limit: limit, FiveHour: before}, true},
+		{usage.Record{Limit: limit, FiveHour: after}, false},
+		{usage.Record{Limit: limit, FiveHour: full, SevenDay: full}, true},
+		{usage.Record{}, false},
+	}
+	for i, c := range cases {
+		if got := c.r.LimitActive(now); got != c.want {
+			t.Errorf("case %d: got %v want %v", i, got, c.want)
+		}
+	}
+}

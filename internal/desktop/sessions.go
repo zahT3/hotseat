@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,16 +125,33 @@ func SyncSessions(src, dst, dstAcct, dstOrg string, transcripts map[string]bool,
 
 func readIndex(path string) indexFile {
 	f := indexFile{path: path}
-	b, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return f
 	}
-	var v struct {
-		LastActivityAt int64  `json:"lastActivityAt"`
-		CLISessionID   string `json:"cliSessionId"`
+	defer file.Close()
+	// Index files are mostly a large remote MCP config that comes after the
+	// two fields needed here, so decoding stops once both have been seen.
+	dec := json.NewDecoder(bufio.NewReader(file))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return f
 	}
-	if json.Unmarshal(b, &v) == nil {
-		f.lastActive, f.cliSession = v.LastActivityAt, v.CLISessionID
+	var haveLast, haveCLI bool
+	for dec.More() && !(haveLast && haveCLI) {
+		t, err := dec.Token()
+		if err != nil {
+			return f
+		}
+		switch t {
+		case "lastActivityAt":
+			haveLast = dec.Decode(&f.lastActive) == nil
+		case "cliSessionId":
+			haveCLI = dec.Decode(&f.cliSession) == nil
+		default:
+			if dec.Decode(&json.RawMessage{}) != nil {
+				return f
+			}
+		}
 	}
 	return f
 }
@@ -210,7 +228,12 @@ func copyFileAtomic(src, dst string) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), dst)
+	if err := os.Rename(tmp.Name(), dst); err != nil {
+		return err
+	}
+	// Same mtime as the source lets later switches skip unchanged files
+	// without reading them (see treesEqual).
+	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 
 // copyTree copies src to dst, keeping permissions and copying symlinks as
