@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: |
+          go test ./...
+          macos/test.sh
+      - name: Build a universal CLI
+        run: |
+          mkdir -p dist
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/hotseat-arm64 ./cmd/hotseat
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist/hotseat-amd64 ./cmd/hotseat
+          lipo -create -output dist/hotseat dist/hotseat-arm64 dist/hotseat-amd64
+          codesign --force --sign - dist/hotseat
+      - name: Build the app (carrying that CLI)
+        run: HOTSEAT_BIN="$PWD/dist/hotseat" SWIFT_ARCHS="arm64 x86_64" macos/build-app.sh
+      - name: Package
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          ditto -c -k --keepParent macos/build/Hotseat.app "dist/Hotseat-$v-macos.zip"
+          tar -czf "dist/hotseat-$v-darwin-universal.tar.gz" -C dist hotseat
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Hotseat $GITHUB_REF_NAME" --notes-file packaging/release-notes.md dist/Hotseat-*.zip dist/hotseat-*.tar.gz

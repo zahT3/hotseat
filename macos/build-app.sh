@@ -17,12 +17,19 @@ else
   cli=build/hotseat
 fi
 
-swift build -c release
+# SWIFT_ARCHS="arm64 x86_64" builds a universal app (release builds).
+arch_flags=""
+for a in ${SWIFT_ARCHS:-}; do
+  arch_flags="$arch_flags --arch $a"
+done
+# shellcheck disable=SC2086
+swift build -c release $arch_flags
 app=build/Hotseat.app
 rm -rf build/Hotseat.app
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
 cp "$cli" "$app/Contents/Resources/bin/hotseat"
-cp "$(swift build -c release --show-bin-path)/Hotseat" "$app/Contents/MacOS/Hotseat"
+# shellcheck disable=SC2086
+cp "$(swift build -c release $arch_flags --show-bin-path)/Hotseat" "$app/Contents/MacOS/Hotseat"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
