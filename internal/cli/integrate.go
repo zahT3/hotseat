@@ -82,6 +82,19 @@ func firstWord(s string) (word, rest string, ok bool) {
 
 func settingsPath(p paths.Paths) string { return filepath.Join(p.CoreDir(), "settings.json") }
 
+// ensureSettings creates an empty settings.json for a Claude Code that has
+// never written one (common on a fresh Mac), so installing can edit it.
+func ensureSettings(p paths.Paths) error {
+	file := settingsPath(p)
+	if _, err := os.Stat(file); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(file, []byte("{}\n"), 0o644)
+}
+
 func settingsBackup(p paths.Paths) string {
 	return filepath.Join(p.BackupsDir(), "settings-"+time.Now().Format("20060102-150405.000000")+".json")
 }
@@ -99,6 +112,11 @@ func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer
 	if len(args) != 1 || (args[0] != "install" && args[0] != "uninstall") {
 		fmt.Fprintln(stderr, "usage: hotseat statusline [install|uninstall]")
 		return 1
+	}
+	if args[0] == "install" {
+		if err := ensureSettings(p); err != nil {
+			return fail(stderr, err)
+		}
 	}
 	file := settingsPath(p)
 	current, raw, err := settings.StatusLineCommand(file)
@@ -162,6 +180,9 @@ func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	file := settingsPath(p)
 	switch args[0] {
 	case "install":
+		if err := ensureSettings(p); err != nil {
+			return fail(stderr, err)
+		}
 		self, err := selfCommand()
 		if err != nil {
 			return fail(stderr, err)
