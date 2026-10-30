@@ -28,6 +28,7 @@ var commands = map[string]command{
 	"desktop":    cmdDesktop,
 	"panel":      cmdPanel,
 	"note":       cmdNote,
+	"icon":       cmdIcon,
 	"remove":     cmdRemove,
 }
 

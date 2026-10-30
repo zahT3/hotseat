@@ -122,8 +122,26 @@ func anyAlive(pc pidChecker, procs []Proc) bool {
 	return false
 }
 
+// appLister is implemented by drivers that can list processes without
+// their open files: enough to tell whether Desktop is running, without the
+// half second lsof costs.
+type appLister interface {
+	AppProcs() ([]Proc, error)
+}
+
+// AppProcs lists processes cheaply when the driver can, for status display;
+// anything that moves Desktop's data uses the full Procs.
+func AppProcs(d Driver) ([]Proc, error) {
+	if l, ok := d.(appLister); ok {
+		return l.AppProcs()
+	}
+	return d.Procs()
+}
+
 // MacDriver drives the real Claude Desktop.
 type MacDriver struct{}
+
+func (MacDriver) AppProcs() ([]Proc, error) { return psProcs() }
 
 // Alive sends signal 0, which only checks that the process exists.
 func (MacDriver) Alive(pid int) bool {
@@ -132,6 +150,21 @@ func (MacDriver) Alive(pid int) bool {
 }
 
 func (MacDriver) Procs() ([]Proc, error) {
+	procs, err := psProcs()
+	if err != nil {
+		return nil, err
+	}
+	paths, err := openPaths()
+	if err != nil {
+		return nil, err
+	}
+	for i := range procs {
+		procs[i].Paths = paths[procs[i].PID]
+	}
+	return procs, nil
+}
+
+func psProcs() ([]Proc, error) {
 	out, err := exec.Command("ps", "-axo", "pid=,comm=").Output()
 	if err != nil {
 		return nil, err
@@ -148,13 +181,6 @@ func (MacDriver) Procs() ([]Proc, error) {
 			continue
 		}
 		procs = append(procs, Proc{PID: pid, Exe: strings.TrimSpace(exe)})
-	}
-	paths, err := openPaths()
-	if err != nil {
-		return nil, err
-	}
-	for i := range procs {
-		procs[i].Paths = paths[procs[i].PID]
 	}
 	return procs, nil
 }

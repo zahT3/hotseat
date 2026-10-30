@@ -80,7 +80,7 @@ func usageRows(p paths.Paths, now time.Time) ([]usageRow, error) {
 			Error:   errText,
 			Account: a.Name, Current: a.Name == cur,
 			FiveHour: view(r.FiveHour, now), SevenDay: view(r.SevenDay, now),
-			Limit: r.Limit, LimitActive: r.Limit.Active(now),
+			Limit: r.Limit, LimitActive: r.LimitActive(now),
 		})
 	}
 	return rows, nil

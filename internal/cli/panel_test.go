@@ -2,11 +2,13 @@ package cli_test
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/zahT3/hotseat/internal/cli"
+	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/testutil"
 	"github.com/zahT3/hotseat/internal/usage"
 )
@@ -32,6 +34,7 @@ type panelOut struct {
 		Email          string `json:"email"`
 		ConfigDir      string `json:"configDir"`
 		LoginProblem   string `json:"loginProblem"`
+		Icon           string `json:"icon"`
 		Note           string `json:"note"`
 	} `json:"accounts"`
 }
@@ -118,5 +121,21 @@ func TestPanelRecommendSkipsCurrentAndLimited(t *testing.T) {
 	code, v := panel(t)
 	if code != 0 || v.Recommend != "claude3" {
 		t.Errorf("exit %d recommend %q", code, v.Recommend)
+	}
+}
+
+// appOnly lists processes cheaply (ps) but fails the full listing (lsof):
+// the panel only needs to know whether Desktop is running.
+type appOnly struct{ fakeDesktop }
+
+func (a *appOnly) Procs() ([]desktop.Proc, error)    { return nil, errors.New("lsof should not run") }
+func (a *appOnly) AppProcs() ([]desktop.Proc, error) { return desktopApp, nil }
+
+func TestPanelChecksDesktopWithoutLsof(t *testing.T) {
+	desktopSetup(t)
+	defer cli.SetDesktopDriver(&appOnly{})()
+	_, v := panel(t)
+	if !v.Desktop.Running || !v.Desktop.RunningKnown {
+		t.Errorf("desktop %+v", v.Desktop)
 	}
 }

@@ -25,6 +25,8 @@ type Account struct {
 	OrgUUID     string `json:"orgUuid"`
 	// Note is the user's own label for the account.
 	Note string `json:"note,omitempty"`
+	// Icon is an SF Symbol name or an emoji the user picked for it.
+	Icon string `json:"icon,omitempty"`
 }
 
 type Registry struct {

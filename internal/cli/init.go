@@ -55,9 +55,9 @@ func mergeDiscovered(reg account.Registry, found []account.Account) account.Regi
 			}
 		}
 		if idx >= 0 {
-			name, note := reg.Accounts[idx].Name, reg.Accounts[idx].Note
+			kept := reg.Accounts[idx]
 			reg.Accounts[idx] = f
-			reg.Accounts[idx].Name, reg.Accounts[idx].Note = name, note
+			reg.Accounts[idx].Name, reg.Accounts[idx].Note, reg.Accounts[idx].Icon = kept.Name, kept.Note, kept.Icon
 			continue
 		}
 		f.Name = uniqueName(reg, f.Name)

@@ -29,6 +29,7 @@ type panelAccount struct {
 	// LoginProblem says when the config dir is no longer logged in to the
 	// registered account (for example after /login with another one).
 	LoginProblem string `json:"loginProblem,omitempty"`
+	Icon         string `json:"icon,omitempty"`
 }
 
 type panelView struct {
@@ -71,7 +72,7 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 			profiles[ps.Account] = ps
 		}
 	}
-	if procs, err := desktopDriver.Procs(); err == nil {
+	if procs, err := desktop.AppProcs(desktopDriver); err == nil {
 		v.Desktop.RunningKnown = true
 		v.Desktop.Running = len(desktop.Running(procs, p.Home)) > 0
 	}
@@ -80,7 +81,7 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	for _, r := range rows {
 		a := panelAccount{usageRow: r, Desktop: "none"}
 		if acct, ok := reg.Find(r.Account); ok {
-			a.Note, a.ConfigDir = acct.Note, acct.ConfigDir
+			a.Note, a.ConfigDir, a.Icon = acct.Note, acct.ConfigDir, acct.Icon
 			a.LoginProblem = loginProblem(p, acct)
 			a.Email = account.ReadEmail(account.ClaudeJSONPath(p, acct))
 		}

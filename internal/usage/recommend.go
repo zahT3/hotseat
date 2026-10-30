@@ -18,7 +18,7 @@ func Recommend(reg account.Registry, records map[string]Record, exclude string, 
 			continue
 		}
 		r := records[a.Name]
-		if r.Limit.Active(now) {
+		if r.LimitActive(now) {
 			continue
 		}
 		five, _, _ := Effective(r.FiveHour, now)
@@ -29,6 +29,27 @@ func Recommend(reg account.Registry, records map[string]Record, exclude string, 
 		}
 	}
 	return best, best != ""
+}
+
+// LimitActive reports whether the account is still blocked: its limit has
+// not reset, and nothing seen since says otherwise. Usage windows observed
+// after the limit, all below 100%, mean it is working again (the reset
+// time in a limit message can be wrong or belong to another window).
+func (r Record) LimitActive(now time.Time) bool {
+	if !r.Limit.Active(now) {
+		return false
+	}
+	seenAfter := false
+	for _, w := range []*Window{r.FiveHour, r.SevenDay} {
+		if w == nil || w.ObservedAt <= r.Limit.ObservedAt {
+			continue
+		}
+		if w.UsedPercent >= 100 {
+			return true
+		}
+		seenAfter = true
+	}
+	return !seenAfter
 }
 
 // Active reports whether the account is still blocked by this limit.
