@@ -33,20 +33,43 @@ public struct HotseatCLI: Sendable {
     }
 
     /// Finds hotseat by absolute path: apps started from Finder or at login
-    /// do not get the shell's PATH.
+    /// do not get the shell's PATH. The copy inside the app comes last, so
+    /// an installed (possibly newer) CLI wins.
     public static func locate(
-        override: String?, home: URL,
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        override: String?, home: URL, bundled: String? = nil,
+        isExecutable: (String) -> Bool = isExecutableFile
     ) throws -> HotseatCLI {
         var tried: [String] = []
         if let override, !override.isEmpty {
             tried.append(override)
         }
         tried += [home.appendingPathComponent(".local/bin/hotseat").path, "/opt/homebrew/bin/hotseat", "/usr/local/bin/hotseat"]
+        if let bundled {
+            tried.append(bundled)
+        }
         guard let found = tried.first(where: isExecutable) else {
             throw HotseatError.notFound(tried: tried)
         }
         return HotseatCLI(executable: URL(fileURLWithPath: found))
+    }
+
+    /// A regular, executable file (a directory is "executable" to the
+    /// file system too).
+    public static func isExecutableFile(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && !isDir.boolValue
+            && FileManager.default.isExecutableFile(atPath: path)
+    }
+
+    /// Copies the CLI shipped in the app to `to`, replacing it atomically.
+    public static func installBundled(from: URL, to: URL) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let tmp = to.appendingPathExtension("tmp")
+        try? fm.removeItem(at: tmp)
+        try fm.copyItem(at: from, to: tmp)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmp.path)
+        _ = try fm.replaceItemAt(to, withItemAt: tmp)
     }
 
     public func snapshot() async throws -> Snapshot {

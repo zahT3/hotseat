@@ -7,10 +7,21 @@ cd "$(dirname "$0")"
 version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' ../internal/cli/cli.go)
 version=${version:-0.0.0}
 
+# The app carries its own hotseat CLI. HOTSEAT_BIN lets a release build
+# pass a universal binary instead of one for this Mac only.
+mkdir -p build
+if [ -n "${HOTSEAT_BIN:-}" ]; then
+  cli="$HOTSEAT_BIN"
+else
+  (cd .. && go build -o macos/build/hotseat ./cmd/hotseat)
+  cli=build/hotseat
+fi
+
 swift build -c release
 app=build/Hotseat.app
 rm -rf build/Hotseat.app
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/bin"
+cp "$cli" "$app/Contents/Resources/bin/hotseat"
 cp "$(swift build -c release --show-bin-path)/Hotseat" "$app/Contents/MacOS/Hotseat"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -35,7 +46,7 @@ codesign --verify "$app"
 echo "built $(pwd)/$app ($version)"
 
 if [ "${1:-}" = "--install" ]; then
-  osascript -e 'quit app "Hotseat"' 2>/dev/null || true
+  osascript -e 'quit app id "io.github.zahT3.hotseat"' 2>/dev/null || true
   dest="$HOME/Applications/Hotseat.app"
   if [ -e "$dest" ]; then
     trash "$dest"

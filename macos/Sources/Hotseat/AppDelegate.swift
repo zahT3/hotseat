@@ -13,6 +13,9 @@ private func later(_ body: @escaping @MainActor () -> Void) {
     }
 }
 
+/// The hotseat CLI shipped inside the app (Contents/Resources/bin).
+let bundledCLI = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/hotseat")
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let model = AppModel()
@@ -66,7 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private func cli() throws -> HotseatCLI {
         try HotseatCLI.locate(
             override: UserDefaults.standard.string(forKey: "hotseatPath"),
-            home: FileManager.default.homeDirectoryForCurrentUser)
+            home: FileManager.default.homeDirectoryForCurrentUser,
+            bundled: bundledCLI.path)
     }
 
     private func loadPreferences() {

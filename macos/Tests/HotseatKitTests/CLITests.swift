@@ -129,3 +129,25 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     try await cli.setIcon("claude2", "briefcase.fill")
     try await cli.setIcon("claude2", nil)
 }
+
+@Test func locateFallsBackToBundled() throws {
+    let cli = try HotseatCLI.locate(override: nil, home: home, bundled: "/Applications/Hotseat.app/Contents/Resources/bin/hotseat",
+                                    isExecutable: { $0.hasSuffix("Resources/bin/hotseat") })
+    #expect(cli.executable.path == "/Applications/Hotseat.app/Contents/Resources/bin/hotseat")
+}
+
+@Test func locateSkipsDirectories() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    let found = try? HotseatCLI.locate(override: dir.path, home: dir, bundled: nil)
+    #expect(found?.executable.path != dir.path)
+}
+
+@Test func installBundledCopies() throws {
+    let src = try fakeHotseat("echo bundled")
+    let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("bin/hotseat")
+    try HotseatCLI.installBundled(from: src.executable, to: dest)
+    #expect(try Data(contentsOf: dest) == Data(contentsOf: src.executable))
+    let perms = try FileManager.default.attributesOfItem(atPath: dest.path)[.posixPermissions] as? Int
+    #expect(perms == 0o755)
+}
