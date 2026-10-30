@@ -125,6 +125,20 @@ public struct HotseatCLI: Sendable {
         _ = try await run(["icon", account] + (icon.map { [$0] } ?? []) + ["--json"], timeout: .seconds(30))
     }
 
+    public func setupStatus() async throws -> SetupStatus {
+        let data = try await run(["setup", "status", "--json"], timeout: .seconds(30))
+        do {
+            return try JSONDecoder().decode(SetupStatus.self, from: data)
+        } catch {
+            throw HotseatError.badOutput(String(String(decoding: data, as: UTF8.self).prefix(200)))
+        }
+    }
+
+    /// Runs one setup command, e.g. ["shim", "install"].
+    public func runStep(_ args: [String]) async throws {
+        _ = try await run(args, timeout: .seconds(120))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)

@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var gate = RefreshGate()
     private var timer: Timer?
     private var settingsWindow: NSWindow?
+    private var setupWindow: NSWindow?
+    private let setup = SetupModel()
 
     /// What to switch, asked for in the open menu and done once it closed.
     private enum Move {
@@ -49,6 +51,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
+        }
+        Task { await openSetupIfNeeded() }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
+
+    /// Opens Setup by itself once per app version while a step is left.
+    private func openSetupIfNeeded() async {
+        await reloadSetup()
+        let pending = setup.steps.contains { !$0.done }
+        if pending && UserDefaults.standard.string(forKey: "setupShownForVersion") != appVersion {
+            UserDefaults.standard.set(appVersion, forKey: "setupShownForVersion")
+            openSetup()
+        }
+    }
+
+    private func reloadSetup() async {
+        setup.bundledVersion = appVersion
+        do {
+            let cli = try cli()
+            setup.usingBundled = cli.executable.path == bundledCLI.path
+            setup.status = try await cli.setupStatus()
+            setup.loadError = nil
+        } catch {
+            setup.loadError = hotseatError(error).message
+        }
+    }
+
+    @objc private func openSetup() {
+        if setupWindow == nil {
+            let view = SetupView(
+                model: setup,
+                run: { [weak self] step in self?.runSetupStep(step) },
+                reload: { [weak self] in Task { await self?.reloadSetup() } },
+                close: { [weak self] in later { self?.setupWindow?.close() } })
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "Hotseat Setup"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            setupWindow = window
+        }
+        NSApp.activate()
+        setupWindow?.makeKeyAndOrderFront(nil)
+        Task { await reloadSetup() }
+    }
+
+    private func runSetupStep(_ step: SetupStep) {
+        guard setup.running == nil else { return }
+        setup.running = step.id
+        setup.errors[step.id] = nil
+        Task {
+            do {
+                if let commands = step.commands {
+                    let cli = try cli()
+                    for args in commands {
+                        try await cli.runStep(args)
+                    }
+                } else {
+                    let dest = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/hotseat")
+                    try HotseatCLI.installBundled(from: bundledCLI, to: dest)
+                }
+            } catch {
+                setup.errors[step.id] = hotseatError(error).message
+            }
+            setup.running = nil
+            await reloadSetup()
+            refresh()
         }
     }
 
@@ -173,6 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         menu.addItem(.separator())
         menu.addItem(action("Settings…", symbol: "gearshape", #selector(openSettings), key: ","))
+        menu.addItem(action("Setup…", symbol: "checklist", #selector(openSetup), key: ""))
         menu.addItem(action("Refresh", symbol: "arrow.clockwise", #selector(refresh), key: "r"))
         menu.addItem(action("Quit Hotseat", symbol: "power", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         updateInPlace()
@@ -350,6 +424,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if (notification.object as? NSWindow) === settingsWindow {
             settingsWindow?.contentViewController = nil
             settingsWindow = nil
+        }
+        if (notification.object as? NSWindow) === setupWindow {
+            setupWindow?.contentViewController = nil
+            setupWindow = nil
         }
     }
 
