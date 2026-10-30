@@ -96,6 +96,14 @@ macos/test.sh                 # Swift tests
 
 The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu.
 
+## Uninstall
+
+```sh
+hotseat uninstall --yes   # removes the claude shim, the status line and the StopFailure hook
+```
+
+It keeps your data: the links between `~/.claude*` dirs (undo them with `hotseat share backups` and `hotseat share rollback <id>`), `~/.config/hotseat` (backups, parked Claude Desktop profiles, usage records) and the app. A status line you changed after installing Hotseat is left as it is.
+
 ## Files
 
 - `~/.config/hotseat/accounts.json`: registered accounts (override the dir with `HOTSEAT_HOME`)

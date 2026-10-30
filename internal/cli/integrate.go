@@ -144,30 +144,63 @@ func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer
 			"installed the Hotseat status line; running sessions pick it up on their own")
 	}
 
+	if err := statuslineUninstall(p); err != nil {
+		return fail(stderr, err)
+	}
+	return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the Hotseat status line")
+}
+
+// errNotOurs means the user changed the setting since Hotseat installed it.
+var errNotOurs = errors.New("statusLine is not Hotseat's (changed since install); left as is")
+
+// statuslineUninstall puts back the status line the user had before.
+func statuslineUninstall(p paths.Paths) error {
+	file := settingsPath(p)
+	current, raw, err := settings.StatusLineCommand(file)
+	if err != nil {
+		return err
+	}
 	var c chain
 	b, err := os.ReadFile(p.ChainFile())
 	switch {
 	case err == nil:
 		if err := json.Unmarshal(b, &c); err != nil {
-			return fail(stderr, err)
+			return err
 		}
 	case !errors.Is(err, os.ErrNotExist):
-		return fail(stderr, err)
+		return err
 	}
 	if raw != nil && !isOurs(current, "statusline") {
-		return fail(stderr, errors.New("statusLine is not Hotseat's (changed since install); left as is"))
+		return errNotOurs
 	}
 	var previous json.RawMessage
 	if c.Previous != "" {
 		previous = json.RawMessage(c.Previous)
 	}
 	if err := settings.RestoreStatusLine(file, previous, settingsBackup(p)); err != nil {
-		return fail(stderr, err)
+		return err
 	}
 	if err := os.Remove(p.ChainFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fail(stderr, err)
+		return err
 	}
-	return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the Hotseat status line")
+	return nil
+}
+
+// hookUninstall removes every StopFailure hook that runs hotseat.
+func hookUninstall(p paths.Paths) error {
+	file := settingsPath(p)
+	cmds, err := settings.HookCommands(file, "StopFailure")
+	if err != nil {
+		return err
+	}
+	for _, c := range cmds {
+		if isOurs(c, "hook stop-failure") {
+			if err := settings.RemoveHook(file, "StopFailure", c, settingsBackup(p)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
@@ -206,16 +239,8 @@ func cmdHook(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return report(stdout, stderr, jsonOut, map[string]string{"hook": self + " hook stop-failure"},
 			"installed the StopFailure hook (rate_limit)")
 	case "uninstall":
-		cmds, err := settings.HookCommands(file, "StopFailure")
-		if err != nil {
+		if err := hookUninstall(p); err != nil {
 			return fail(stderr, err)
-		}
-		for _, c := range cmds {
-			if isOurs(c, "hook stop-failure") {
-				if err := settings.RemoveHook(file, "StopFailure", c, settingsBackup(p)); err != nil {
-					return fail(stderr, err)
-				}
-			}
 		}
 		return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the StopFailure hook")
 	case "stop-failure":
