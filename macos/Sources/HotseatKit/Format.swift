@@ -2,12 +2,13 @@ import Foundation
 
 /// The text the menu shows. Times follow the CLI's `hotseat usage`.
 public enum Format {
-    public static func window(_ label: String, _ w: UsageWindow?, now: Date, calendar: Calendar = .current) -> String {
-        guard let w else { return "\(label) ?" }
-        if w.reset { return "\(label) 0% (reset)" }
-        var s = "\(label) \(String(format: "%.0f", w.usedPercent))%"
+    /// A usage window's number and reset time, shown beside its bar.
+    public static func value(_ w: UsageWindow?, now: Date, calendar: Calendar = .current) -> String {
+        guard let w else { return "?" }
+        if w.reset { return "0% (reset)" }
+        var s = "\(String(format: "%.0f", w.usedPercent))%"
         if w.resetsAt > 0 {
-            s += " · resets " + when(w.resetsAt, now: now, calendar: calendar)
+            s += " · " + when(w.resetsAt, now: now, calendar: calendar)
         }
         return s
     }

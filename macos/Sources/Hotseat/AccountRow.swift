@@ -19,34 +19,41 @@ struct AccountRow: View {
     let hover = Hover()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text((info.current ? "● " : "") + info.account)
-                    .fontWeight(info.current ? .semibold : .regular)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 12)
+                    .opacity(info.current ? 1 : 0)
+                Text(info.account).fontWeight(info.current ? .semibold : .regular)
                 if recommended {
                     Text("suggested").font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
+                Spacer(minLength: 8)
+                if info.desktop == "active" {
+                    Text("Desktop").font(.caption).foregroundStyle(.secondary)
+                }
                 if info.limitActive {
                     Text("LIMIT until " + (info.limit.flatMap { $0.resetsAt > 0 ? Format.when($0.resetsAt, now: now) : nil } ?? "unknown"))
                         .font(.caption).foregroundStyle(.red)
-                } else if info.desktop == "active" {
-                    Text("Desktop").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            bar("5h", info.fiveHour)
-            bar("7d", info.sevenDay)
-            Text(Format.age(info.observedAt, now: now)).font(.caption).foregroundStyle(.secondary)
-            if let problem = info.desktopProblem {
-                Text("Desktop: " + problem).font(.caption).foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 3) {
+                bar("5h", info.fiveHour)
+                bar("7d", info.sevenDay)
+                Text(Format.age(info.observedAt, now: now)).font(.caption).foregroundStyle(.secondary)
+                if let problem = info.desktopProblem {
+                    Text("Desktop: " + problem).font(.caption).foregroundStyle(.orange)
+                }
+                if let error = info.error, !error.isEmpty {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
             }
-            if let error = info.error, !error.isEmpty {
-                Text(error).font(.caption).foregroundStyle(.red)
-            }
+            .padding(.leading, 17)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 6)
-        .frame(width: 300, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(width: 320, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 5).fill(hover.on && !disabled ? Color.primary.opacity(0.08) : .clear).padding(.horizontal, 5))
         .opacity(disabled ? 0.5 : 1)
         .contentShape(Rectangle())
@@ -55,9 +62,29 @@ struct AccountRow: View {
     }
 
     private func bar(_ label: String, _ w: UsageWindow?) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(Format.window(label, w, now: now)).font(.caption).monospacedDigit()
-            ProgressView(value: w.map { $0.reset ? 0 : min(max($0.usedPercent, 0), 100) } ?? 0, total: 100)
+        HStack(spacing: 6) {
+            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 18, alignment: .leading)
+            UsageBar(fraction: w.map { $0.reset ? 0 : $0.usedPercent / 100 })
+            Text(Format.value(w, now: now)).font(.caption).monospacedDigit()
+                .frame(width: 112, alignment: .trailing)
         }
+    }
+}
+
+/// A thin bar that stays empty at 0% and when the number is unknown
+/// (ProgressView draws a dot at 0, which reads as some usage).
+struct UsageBar: View {
+    let fraction: Double?
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.12))
+                if let f = fraction, f > 0 {
+                    Capsule().fill(Color.accentColor).frame(width: max(5, g.size.width * min(f, 1)))
+                }
+            }
+        }
+        .frame(height: 5)
     }
 }

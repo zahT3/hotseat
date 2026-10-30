@@ -23,13 +23,6 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
     UsageWindow(usedPercent: pct, resetsAt: resets.map(ts) ?? 0, observedAt: ts("2026-10-30 09:50"), source: "statusline", reset: reset)
 }
 
-@Test func windowText() {
-    #expect(Format.window("5h", nil, now: now, calendar: shanghai) == "5h ?")
-    #expect(Format.window("5h", window(0, resets: "2026-10-30 08:00", reset: true), now: now, calendar: shanghai) == "5h 0% (reset)")
-    #expect(Format.window("5h", window(20.4, resets: "2026-10-30 14:30"), now: now, calendar: shanghai) == "5h 20% · resets 14:30")
-    #expect(Format.window("7d", window(79, resets: nil), now: now, calendar: shanghai) == "7d 79%")
-}
-
 @Test func whenText() {
     #expect(Format.when(ts("2026-10-30 14:30"), now: now, calendar: shanghai) == "14:30")
     #expect(Format.when(ts("2026-11-02 19:00"), now: now, calendar: shanghai) == "Mon 19:00")
@@ -67,4 +60,12 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
     {"generatedAt":1,"current":"","desktop":{"managed":false,"running":false,"runningKnown":true,"pendingRecovery":false},"accounts":[]}
     """.utf8))
     #expect(Format.title(empty, failed: false) == "Hotseat")
+}
+
+@Test func windowValueText() {
+    #expect(Format.value(nil, now: now, calendar: shanghai) == "?")
+    #expect(Format.value(window(0, resets: "2026-10-30 08:00", reset: true), now: now, calendar: shanghai) == "0% (reset)")
+    #expect(Format.value(window(12.4, resets: "2026-10-30 18:00"), now: now, calendar: shanghai) == "12% · 18:00")
+    #expect(Format.value(window(65, resets: "2026-11-04 03:00"), now: now, calendar: shanghai) == "65% · Wed 03:00")
+    #expect(Format.value(window(79, resets: nil), now: now, calendar: shanghai) == "79%")
 }
