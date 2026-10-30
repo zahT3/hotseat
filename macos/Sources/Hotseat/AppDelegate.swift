@@ -14,7 +14,7 @@ private func later(_ body: @escaping @MainActor () -> Void) {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let model = AppModel()
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// What the current menu items were built for; while the menu is open
     /// they are only updated in place, which keeps its size right.
     private var builtFor = ""
-    private var cards: [String: NSHostingView<AccountCard>] = [:]
+    private var cards: [String: MenuCardView] = [:]
     private var errorItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -115,10 +115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             button.title = ""
             return
         }
-        let current = s?.accounts.first { $0.account == s?.current }
-        button.image = StatusIcon.meter(
-            five: current?.fiveHour.map { $0.reset ? 0 : $0.usedPercent / 100 },
-            week: current?.sevenDay.map { $0.reset ? 0 : $0.usedPercent / 100 })
+        if let current = s?.accounts.first(where: { $0.account == s?.current }) {
+            button.image = StatusIcon.avatar(icon: current.icon, name: current.displayName)
+        } else {
+            button.image = StatusIcon.meter(five: nil, week: nil)
+        }
         let title = Format.title(s, failed: model.lastError != nil)
         button.title = title.isEmpty ? "" : " " + title
     }
@@ -144,8 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         errorItem = nil
         if let s = model.snapshot {
             for (i, a) in s.accounts.enumerated() {
-                let host = NSHostingView(rootView: card(a, s, index: i))
-                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                let host = MenuCardView(card(a, s, index: i))
                 let item = NSMenuItem(title: a.displayName, action: #selector(switchFromKey(_:)), keyEquivalent: i < 9 ? "\(i + 1)" : "")
                 item.target = self
                 item.representedObject = a.account
@@ -177,9 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateInPlace() {
         if let s = model.snapshot {
             for (i, a) in s.accounts.enumerated() {
-                guard let host = cards[a.account] else { continue }
-                host.rootView = card(a, s, index: i)
-                host.frame.size = host.fittingSize
+                cards[a.account]?.update(card(a, s, index: i))
             }
         }
         if let errorItem, let error = model.lastError {
@@ -326,18 +324,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 addAccount: { [weak self] in later { self?.promptAddAccount() } },
                 setUpDesktop: { [weak self] name in later { self?.setUpDesktop(name) } },
                 remove: { [weak self] name in later { self?.confirmRemove(name) } },
+                setIcon: { [weak self] in self?.setIcon($0, $1) },
                 setLaunchAtLogin: { [weak self] in self?.setLaunchAtLogin($0) },
                 setAskBeforeDesktopRestart: { [weak self] in self?.setAskBeforeDesktopRestart($0) })
             let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model, actions: actions)))
             window.title = "Hotseat Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
+            window.delegate = self
             window.center()
             settingsWindow = window
         }
         NSApp.activate()
         settingsWindow?.makeKeyAndOrderFront(nil)
         refresh()
+    }
+
+    // Drop the window and its views when closed, so nothing of Settings
+    // keeps running in the background.
+    func windowWillClose(_ notification: Notification) {
+        if (notification.object as? NSWindow) === settingsWindow {
+            settingsWindow?.contentViewController = nil
+            settingsWindow = nil
+        }
+    }
+
+    private func setIcon(_ name: String, _ icon: String?) {
+        Task {
+            do {
+                try await cli().setIcon(name, icon)
+            } catch {
+                report(error)
+            }
+            refresh()
+        }
     }
 
     private func saveNote(_ name: String, _ text: String) {

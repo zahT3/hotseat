@@ -48,18 +48,20 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
     public var configDir: String?
     /// Set when the config dir is logged out or logged in to another account.
     public var loginProblem: String?
+    /// An SF Symbol name or emoji the user picked.
+    public var icon: String?
 
     public var id: String { account }
 
-    /// The user's note, else the login's email, else the account name.
+    /// The user's note, else the name part of the email, else Hotseat's
+    /// own name for the account (claude2...).
     public var displayName: String {
-        nonEmpty(note) ?? nonEmpty(email) ?? account
+        nonEmpty(note) ?? nonEmpty(email).map { String($0.prefix { $0 != "@" }) } ?? account
     }
 
-    /// The email, when a note is shown in its place. Hotseat's own account
-    /// names (claude2...) stay out of the menu; Settings shows them.
+    /// The full email, under the display name.
     public var detail: String? {
-        nonEmpty(note) != nil ? nonEmpty(email) : nil
+        nonEmpty(email)
     }
 
     /// When the newer of the two usage windows was observed.

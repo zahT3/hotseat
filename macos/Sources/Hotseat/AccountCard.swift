@@ -1,8 +1,11 @@
 import HotseatKit
 import SwiftUI
 
-/// One account in the menu. The whole card is the switch, like a network
-/// in the Wi-Fi menu: one account is active at a time.
+/// One account in the menu. Clicking the card moves both the CLI and
+/// Claude Desktop to it; the two buttons at the bottom move one side only.
+/// No hover tracking or tooltips here: tracking areas in menu views kept
+/// AppKit and WindowServer busy long after the menu closed. MenuCardView
+/// draws the highlight from the menu item's own state instead.
 struct AccountCard: View {
     let info: AccountInfo
     let recommended: Bool
@@ -10,21 +13,19 @@ struct AccountCard: View {
     let shortcut: Int?
     /// The account a switch is in progress to, if any.
     let switching: String?
-    /// Click on the card: CLI and Desktop together.
     let onTap: () -> Void
     let onCLIOnly: () -> Void
     let onDesktopOnly: () -> Void
-    let hover = Hover()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
-                Avatar(name: info.displayName, highlighted: info.current)
+                Avatar(info: info, size: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 6) {
                         Text(info.displayName)
                             .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1).truncationMode(.middle)
+                            .lineLimit(1).truncationMode(.tail)
                         if recommended {
                             Badge(text: "Suggested", color: .secondary)
                         }
@@ -37,16 +38,7 @@ struct AccountCard: View {
                 Spacer(minLength: 4)
                 if switching == info.account {
                     ProgressView().controlSize(.small)
-                }
-                Pill(text: "CLI", on: info.current, enabled: switching == nil,
-                     help: info.current ? "New terminal sessions use this account" : "Use this account for new terminal sessions only",
-                     action: onCLIOnly)
-                if info.desktop != "none" {
-                    Pill(text: "Desktop", on: info.desktop == "active", enabled: switching == nil,
-                         help: info.desktop == "active" ? "Claude Desktop runs as this account" : "Move only Claude Desktop to this account",
-                         action: onDesktopOnly)
-                }
-                if let shortcut {
+                } else if let shortcut {
                     Text("⌘\(shortcut)").font(.system(size: 11)).foregroundStyle(.tertiary)
                 }
             }
@@ -68,20 +60,22 @@ struct AccountCard: View {
                 Text(Format.age(info.observedAt, now: now))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            .padding(.leading, 38)
+            .padding(.leading, 40)
+            HStack(spacing: 8) {
+                SideButton(title: "CLI", symbol: "terminal", on: info.current,
+                           enabled: switching == nil, action: onCLIOnly)
+                SideButton(title: info.desktop == "none" ? "Desktop not set up" : "Desktop", symbol: "macwindow",
+                           on: info.desktop == "active", enabled: switching == nil && info.desktop != "none",
+                           action: onDesktopOnly)
+            }
+            .padding(.leading, 40)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(width: 350, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(hover.on && switching == nil ? Color.primary.opacity(0.08) : .clear)
-                .padding(.horizontal, 5))
         .opacity(switching != nil && switching != info.account ? 0.5 : 1)
         .contentShape(Rectangle())
-        .onHover { hover.on = $0 }
         .onTapGesture { if switching == nil { onTap() } }
-        .help(info.current && info.desktop != "parked" ? "In use" : "Click to switch to this account")
     }
 
     private func meter(_ label: String, _ w: UsageWindow?) -> some View {
@@ -102,42 +96,63 @@ struct AccountCard: View {
     }
 }
 
-struct Avatar: View {
-    let name: String
-    let highlighted: Bool
-
-    var body: some View {
-        ZStack {
-            Circle().fill(highlighted ? Color.accentColor : Color.secondary.opacity(0.22))
-            Text(name.first.map { String($0).uppercased() } ?? "?")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(highlighted ? Color.white : Color.primary)
-        }
-        .frame(width: 28, height: 28)
-    }
-}
-
-/// Where an account is in use. A filled pill is in use here; an outlined
-/// one moves just that side (CLI or Desktop) to this account.
-struct Pill: View {
-    let text: String
+/// Moves one side (CLI or Desktop) to the account. Filled when that side
+/// already uses it.
+struct SideButton: View {
+    let title: String
+    let symbol: String
     let on: Bool
     let enabled: Bool
-    let help: String
     let action: () -> Void
 
     var body: some View {
-        Button(action: { if !on && enabled { action() } }) {
-            Text(text)
-                .font(.system(size: 10, weight: .semibold))
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .foregroundStyle(on ? Color.white : Color.secondary)
-                .background(Capsule().fill(on ? Color.accentColor : Color.clear))
-                .overlay(Capsule().strokeBorder(on ? Color.clear : Color.secondary.opacity(0.5), lineWidth: 1))
+        Button(action: { if enabled && !on { action() } }) {
+            HStack(spacing: 5) {
+                Image(systemName: on ? "checkmark.circle.fill" : symbol)
+                Text(title).lineLimit(1)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)
+            .foregroundStyle(on ? Color.white : enabled ? Color.primary : Color.secondary)
+            .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color.accentColor : Color.primary.opacity(0.08)))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(help)
+    }
+}
+
+/// The account's picked symbol or emoji, else its initial.
+struct Avatar: View {
+    let info: AccountInfo
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().fill(info.current ? Color.accentColor : Color.secondary.opacity(0.22))
+            switch AvatarKind(info) {
+            case .symbol(let name):
+                Image(systemName: name).font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(info.current ? Color.white : Color.primary)
+            case .text(let text):
+                Text(text).font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(info.current ? Color.white : Color.primary)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+enum AvatarKind {
+    case symbol(String)
+    case text(String)
+
+    init(_ info: AccountInfo) {
+        if let icon = info.icon, !icon.isEmpty {
+            self = NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil ? .symbol(icon) : .text(icon)
+        } else {
+            self = .text(info.displayName.first.map { String($0).uppercased() } ?? "?")
+        }
     }
 }
 
@@ -148,6 +163,8 @@ struct Badge: View {
     var body: some View {
         Text(text)
             .font(.system(size: 10, weight: .semibold))
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .foregroundStyle(color)

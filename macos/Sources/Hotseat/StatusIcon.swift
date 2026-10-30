@@ -29,4 +29,34 @@ enum StatusIcon {
         image?.isTemplate = true
         return image
     }()
+
+    /// The current account's avatar for the menu bar: its picked symbol,
+    /// its emoji, or its initial cut out of a circle.
+    static func avatar(icon: String?, name: String) -> NSImage {
+        let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        if let icon, !icon.isEmpty {
+            if let symbol = NSImage(systemSymbolName: icon, accessibilityDescription: name)?.withSymbolConfiguration(config) {
+                symbol.isTemplate = true
+                return symbol
+            }
+            return NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+                (icon as NSString).draw(in: rect.insetBy(dx: 0, dy: 1), withAttributes: [.font: NSFont.systemFont(ofSize: 13)])
+                return true
+            }
+        }
+        let initial = name.first.map { String($0).uppercased() } ?? "?"
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            let font = NSFont.systemFont(ofSize: 10.5, weight: .bold)
+            let text = initial as NSString
+            let size = text.size(withAttributes: [.font: font])
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
+                      withAttributes: [.font: font, .foregroundColor: NSColor.black])
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
 }

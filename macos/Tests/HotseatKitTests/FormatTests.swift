@@ -46,15 +46,14 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
 }
 
 @Test func titleText() throws {
-    // The icon shows usage; text is only the user's note, LIMIT, or "!".
-    // Never the email: the menu bar is on every screenshot.
+    // Beside the account's avatar: its 5-hour use, LIMIT, or "!" on errors.
     let s = try Snapshot.decode(Data(panelFixture.utf8))
     #expect(Format.title(nil, failed: true) == "!")
     #expect(Format.title(nil, failed: false) == "")
-    #expect(Format.title(s, failed: false) == "")
+    #expect(Format.title(s, failed: false) == "20%")
     #expect(Format.title(s, failed: true) == "!")
-    let noted = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"account\": \"claude3\", \"current\": true,", with: "\"account\": \"claude3\", \"current\": true, \"note\": \"Work\", \"email\": \"lisa.w@x.com\",").utf8))
-    #expect(Format.title(noted, failed: false) == "Work")
+    let reset = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude2\"").utf8))
+    #expect(Format.title(reset, failed: false) == "0%")
     let limited = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude\"").utf8))
     #expect(Format.title(limited, failed: false) == "LIMIT")
 }
@@ -90,13 +89,13 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
         if let email { fields.append("\"email\":\"\(email)\"") }
         return try JSONDecoder().decode(AccountInfo.self, from: Data(("{" + fields.joined(separator: ",") + "}").utf8))
     }
-    // The menu never shows Hotseat's internal names (claude2...).
+    // Hotseat's internal names (claude2...) only show when nothing else is known.
     let both = try info("Work", "lisa.w@x.com")
     #expect(both.displayName == "Work" && both.detail == "lisa.w@x.com")
     let noteOnly = try info("Work", nil)
     #expect(noteOnly.displayName == "Work" && noteOnly.detail == nil)
     let emailOnly = try info(nil, "lisa.w@x.com")
-    #expect(emailOnly.displayName == "lisa.w@x.com" && emailOnly.detail == nil)
+    #expect(emailOnly.displayName == "lisa.w" && emailOnly.detail == "lisa.w@x.com")
     let bare = try info(nil, nil)
     #expect(bare.displayName == "claude2" && bare.detail == nil)
 }

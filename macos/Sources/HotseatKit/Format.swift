@@ -60,14 +60,14 @@ public enum Format {
         }
     }
 
-    /// The text beside the status bar meter: the current account's note,
-    /// LIMIT, or "!" on errors. Usage is in the icon, and the email never
-    /// appears in the menu bar, which ends up in every screenshot.
+    /// The text beside the current account's avatar in the menu bar: its
+    /// 5-hour use, LIMIT, or "!" on errors. Never the email: the menu bar
+    /// ends up in every screenshot.
     public static func title(_ s: Snapshot?, failed: Bool) -> String {
         if failed { return "!" }
         guard let s, let a = s.accounts.first(where: { $0.account == s.current }) else { return "" }
-        let note = a.note?.trimmingCharacters(in: .whitespaces) ?? ""
-        if a.limitActive { return note.isEmpty ? "LIMIT" : note + " LIMIT" }
-        return note
+        if a.limitActive { return "LIMIT" }
+        guard let w = a.fiveHour else { return "" }
+        return "\(String(format: "%.0f", w.reset ? 0 : w.usedPercent))%"
     }
 }

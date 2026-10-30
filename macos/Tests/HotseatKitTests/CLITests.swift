@@ -118,3 +118,14 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     try await cli.switchDesktop("claude2")
     try await cli.remove("claude2")
 }
+
+@Test func setIconPassesSymbol() async throws {
+    let cli = try fakeHotseat("""
+    case "$*" in
+      "icon claude2 briefcase.fill --json"|"icon claude2 --json") exit 0 ;;
+      *) echo "bad args: $*" >&2; exit 9 ;;
+    esac
+    """)
+    try await cli.setIcon("claude2", "briefcase.fill")
+    try await cli.setIcon("claude2", nil)
+}

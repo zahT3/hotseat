@@ -6,6 +6,7 @@ struct SettingsActions {
     let addAccount: () -> Void
     let setUpDesktop: (String) -> Void
     let remove: (String) -> Void
+    let setIcon: (String, String?) -> Void
     let setLaunchAtLogin: (Bool) -> Void
     let setAskBeforeDesktopRestart: (Bool) -> Void
 }
@@ -71,7 +72,18 @@ struct AccountSettingsRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Avatar(name: info.displayName, highlighted: info.current)
+            Menu {
+                ForEach(iconChoices, id: \.self) { name in
+                    Button { actions.setIcon(info.account, name) } label: { Label(name, systemImage: name) }
+                }
+                Divider()
+                Button("Initial (default)") { actions.setIcon(info.account, nil) }
+            } label: {
+                Avatar(info: info, size: 36)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     TextField(info.email ?? info.account, text: draft)
@@ -150,6 +162,12 @@ struct AccountSettingsRow: View {
         }
     }
 }
+
+private let iconChoices = [
+    "person.fill", "briefcase.fill", "house.fill", "star.fill", "bolt.fill", "leaf.fill",
+    "flame.fill", "moon.fill", "sun.max.fill", "heart.fill", "graduationcap.fill", "hammer.fill",
+    "paintbrush.fill", "gamecontroller.fill", "airplane", "cup.and.saucer.fill",
+]
 
 struct GeneralSettings: View {
     let model: AppModel

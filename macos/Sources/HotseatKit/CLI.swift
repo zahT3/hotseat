@@ -97,6 +97,11 @@ public struct HotseatCLI: Sendable {
         _ = try await run(["remove", account, "--yes", "--json"], timeout: .seconds(60))
     }
 
+    /// Sets the symbol shown for `account`; nil clears it.
+    public func setIcon(_ account: String, _ icon: String?) async throws {
+        _ = try await run(["icon", account] + (icon.map { [$0] } ?? []) + ["--json"], timeout: .seconds(30))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)
