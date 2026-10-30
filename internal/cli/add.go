@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
 	"github.com/zahT3/hotseat/internal/paths"
@@ -44,6 +45,8 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fail(stderr, err)
 	}
+	_, statErr := os.Lstat(dir)
+	created := errors.Is(statErr, os.ErrNotExist)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fail(stderr, err)
 	}
@@ -70,6 +73,14 @@ func cmdAdd(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	a := account.Account{Name: name, ConfigDir: dir}
 	id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
 	if errors.Is(err, account.ErrNoIdentity) {
+		if created {
+			// Nothing of the user's is in a dir this command just made;
+			// move it aside so a cancelled login leaves no clutter.
+			backup := filepath.Join(p.BackupsDir(), "add-failed-"+name+"-"+time.Now().Format("20060102-150405"))
+			if os.MkdirAll(p.BackupsDir(), 0o700) == nil && os.Rename(dir, backup) == nil {
+				return fail(stderr, fmt.Errorf("login did not complete; nothing was added (the half-made %s is in %s). Retry with: hotseat add %s", tildePath(p, dir), tildePath(p, backup), name))
+			}
+		}
 		return fail(stderr, fmt.Errorf("login did not complete; %s was left in place, retry with: hotseat add %s --dir %s", dir, name, dir))
 	}
 	if err != nil {

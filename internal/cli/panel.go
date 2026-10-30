@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -25,6 +26,9 @@ type panelAccount struct {
 	Email          string `json:"email,omitempty"`
 	Note           string `json:"note,omitempty"`
 	ConfigDir      string `json:"configDir,omitempty"`
+	// LoginProblem says when the config dir is no longer logged in to the
+	// registered account (for example after /login with another one).
+	LoginProblem string `json:"loginProblem,omitempty"`
 }
 
 type panelView struct {
@@ -77,6 +81,7 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		a := panelAccount{usageRow: r, Desktop: "none"}
 		if acct, ok := reg.Find(r.Account); ok {
 			a.Note, a.ConfigDir = acct.Note, acct.ConfigDir
+			a.LoginProblem = loginProblem(p, acct)
 			a.Email = account.ReadEmail(account.ClaudeJSONPath(p, acct))
 		}
 		if ps, ok := profiles[r.Account]; ok {
@@ -88,4 +93,17 @@ func cmdPanel(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		v.Accounts = append(v.Accounts, a)
 	}
 	return writeJSON(stdout, stderr, v)
+}
+
+func loginProblem(p paths.Paths, a account.Account) string {
+	id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
+	switch {
+	case errors.Is(err, account.ErrNoIdentity):
+		return "not logged in"
+	case err != nil:
+		return err.Error()
+	case id.AccountUUID != a.AccountUUID:
+		return "logged in to a different Claude account than the one registered; log back in to this account"
+	}
+	return ""
 }

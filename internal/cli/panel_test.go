@@ -31,6 +31,7 @@ type panelOut struct {
 		DesktopProblem string `json:"desktopProblem"`
 		Email          string `json:"email"`
 		ConfigDir      string `json:"configDir"`
+		LoginProblem   string `json:"loginProblem"`
 		Note           string `json:"note"`
 	} `json:"accounts"`
 }
