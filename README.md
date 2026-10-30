@@ -94,7 +94,7 @@ macos/build-app.sh --install  # also replaces ~/Applications/Hotseat.app and ope
 macos/test.sh                 # Swift tests
 ```
 
-The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu.
+The Command Line Tools are enough; Xcode is not needed. The app reads nothing itself and makes no network requests: all of its data comes from `hotseat panel --json`, and switching runs `hotseat use`. It looks for `hotseat` in `~/.local/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; point it elsewhere with `defaults write io.github.zahT3.hotseat hotseatPath /path/to/hotseat`. Turn on Launch at Login from its menu. The app does not see variables set in your shell, so a `HOTSEAT_HOME` exported there does not reach it; if you use one, point the app at a wrapper script with `hotseatPath`.
 
 ## Uninstall
 

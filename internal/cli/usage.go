@@ -69,6 +69,10 @@ func usageRows(p paths.Paths, now time.Time) ([]usageRow, error) {
 	}
 	cur, _ := account.CurrentName(p)
 	records, errs := loadRecords(p, reg)
+	return rowsFrom(reg, cur, records, errs, now), nil
+}
+
+func rowsFrom(reg account.Registry, cur string, records map[string]usage.Record, errs map[string]error, now time.Time) []usageRow {
 	rows := []usageRow{}
 	for _, a := range reg.Accounts {
 		r := records[a.Name]
@@ -83,7 +87,7 @@ func usageRows(p paths.Paths, now time.Time) ([]usageRow, error) {
 			Limit: r.Limit, LimitActive: r.LimitActive(now),
 		})
 	}
-	return rows, nil
+	return rows
 }
 
 func cmdUsage(p paths.Paths, args []string, stdout, stderr io.Writer) int {

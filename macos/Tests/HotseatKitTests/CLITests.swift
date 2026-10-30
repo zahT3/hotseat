@@ -151,3 +151,15 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     let perms = try FileManager.default.attributesOfItem(atPath: dest.path)[.posixPermissions] as? Int
     #expect(perms == 0o755)
 }
+
+@Test func timeoutKillsStubbornProcess() async throws {
+    let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let cli = try fakeHotseat("echo $$ > '\(pidFile.path)'; trap '' TERM; while :; do sleep 1; done")
+    let start = Date()
+    await #expect(throws: HotseatError.timedOut(seconds: 1)) {
+        _ = try await cli.run(["panel"], timeout: .seconds(1))
+    }
+    #expect(Date().timeIntervalSince(start) < 6)
+    let pid = Int32(try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))!
+    #expect(kill(pid, 0) != 0)  // gone, not just asked to go
+}

@@ -188,6 +188,12 @@ public struct HotseatCLI: Sendable {
         let seconds = Int(timeout.components.seconds)
         if exited.wait(timeout: .now() + .seconds(seconds)) == .timedOut {
             p.terminate()
+            // A process that ignores SIGTERM would keep running (and, for
+            // `use`, keep switching) after the app gave up on it.
+            if exited.wait(timeout: .now() + .seconds(3)) == .timedOut {
+                kill(p.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + .seconds(1))
+            }
             throw HotseatError.timedOut(seconds: seconds)
         }
         drained.wait()
