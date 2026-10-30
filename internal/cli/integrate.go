@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,7 +25,7 @@ var selfCommand = func() (string, error) {
 	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
-	return shellq.Quote(exe), nil
+	return shellq.Quote(stablePath(exe)), nil
 }
 
 // isOurs reports whether a settings.json command runs some hotseat binary
@@ -150,12 +151,20 @@ func cmdStatuslineInstall(p paths.Paths, args []string, stdout, stderr io.Writer
 	return report(stdout, stderr, jsonOut, map[string]bool{"removed": true}, "removed the Hotseat status line")
 }
 
+// leftAsIs is an uninstall step that found the user's own change and kept it.
+type leftAsIs string
+
+func (e leftAsIs) Error() string { return string(e) }
+
 // errNotOurs means the user changed the setting since Hotseat installed it.
-var errNotOurs = errors.New("statusLine is not Hotseat's (changed since install); left as is")
+var errNotOurs = leftAsIs("statusLine is not Hotseat's (changed since install); left as is")
 
 // statuslineUninstall puts back the status line the user had before.
 func statuslineUninstall(p paths.Paths) error {
 	file := settingsPath(p)
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil // never installed: nothing to take out
+	}
 	current, raw, err := settings.StatusLineCommand(file)
 	if err != nil {
 		return err
@@ -173,6 +182,14 @@ func statuslineUninstall(p paths.Paths) error {
 	if raw != nil && !isOurs(current, "statusline") {
 		return errNotOurs
 	}
+	if raw == nil && c.Previous != "" {
+		// The user deleted the status line since install; putting their
+		// old one back would undo that.
+		if err := os.Remove(p.ChainFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return leftAsIs("statusLine was removed since install; left as is")
+	}
 	var previous json.RawMessage
 	if c.Previous != "" {
 		previous = json.RawMessage(c.Previous)
@@ -189,6 +206,9 @@ func statuslineUninstall(p paths.Paths) error {
 // hookUninstall removes every StopFailure hook that runs hotseat.
 func hookUninstall(p paths.Paths) error {
 	file := settingsPath(p)
+	if _, err := os.Stat(file); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	cmds, err := settings.HookCommands(file, "StopFailure")
 	if err != nil {
 		return err
@@ -257,4 +277,12 @@ func report(stdout, stderr io.Writer, jsonOut bool, v any, text string) int {
 	}
 	fmt.Fprintln(stdout, text)
 	return 0
+}
+
+var cellarRe = regexp.MustCompile(`^(.*)/Cellar/([^/]+)/[^/]+/(.*)$`)
+
+// stablePath turns a Homebrew Cellar path, which changes with every upgrade
+// and is deleted by cleanup, into the formula's stable opt link.
+func stablePath(p string) string {
+	return cellarRe.ReplaceAllString(p, "$1/opt/$2/$3")
 }

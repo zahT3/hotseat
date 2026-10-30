@@ -52,6 +52,7 @@ func shimInstall(p paths.Paths) error {
 	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return err
 	}
+	self = stablePath(self)
 	if err := os.MkdirAll(p.ShimDir(), 0o755); err != nil {
 		return err
 	}

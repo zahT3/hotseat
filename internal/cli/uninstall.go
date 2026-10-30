@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -39,7 +40,7 @@ func cmdUninstall(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		switch err := s.run(p); {
 		case err == nil:
 			results[s.name] = "removed"
-		case err == errNotOurs:
+		case errors.As(err, new(leftAsIs)):
 			results[s.name] = err.Error()
 		default:
 			results[s.name] = "failed: " + err.Error()

@@ -56,3 +56,6 @@ func SetAuthLogout(fn func(dir string) error) func() {
 	authLogout = func(dir, _ string) error { return fn(dir) }
 	return func() { authLogout = old }
 }
+
+// StablePath exposes stablePath for tests.
+func StablePath(p string) string { return stablePath(p) }

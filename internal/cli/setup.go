@@ -18,10 +18,13 @@ type setupView struct {
 	Accounts     int    `json:"accounts"`
 	LoginsFound  int    `json:"loginsFound"`
 	ShareActions int    `json:"shareActions"`
-	Shim         bool   `json:"shim"`
-	Statusline   bool   `json:"statusline"`
-	Hook         bool   `json:"hook"`
-	Desktop      string `json:"desktop"` // adopted, available or absent
+	// ShareConflicts are files that differ between accounts; apply keeps
+	// ~/.claude's copy and leaves them, so they do not count as pending.
+	ShareConflicts int    `json:"shareConflicts"`
+	Shim           bool   `json:"shim"`
+	Statusline     bool   `json:"statusline"`
+	Hook           bool   `json:"hook"`
+	Desktop        string `json:"desktop"` // adopted, available or absent
 }
 
 // cmdSetup reports which install steps are done, for the app's setup
@@ -42,7 +45,8 @@ func cmdSetup(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	}
 	if v.Accounts > 0 {
 		if _, pl, err := loadPlan(p); err == nil {
-			v.ShareActions = len(pl.Actions)
+			v.ShareConflicts = pl.Conflicts()
+			v.ShareActions = len(pl.Actions) - v.ShareConflicts
 		}
 	}
 	if content, err := readZshrc(p); err == nil {
