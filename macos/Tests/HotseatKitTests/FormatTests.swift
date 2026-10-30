@@ -61,3 +61,10 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
     let limited = try Snapshot.decode(Data(panelFixture.replacingOccurrences(of: "\"current\": \"claude3\"", with: "\"current\": \"claude\"").utf8))
     #expect(Format.title(limited, failed: false) == "claude LIMIT")
 }
+
+@Test func titleWithoutCurrentAccount() throws {
+    let empty = try Snapshot.decode(Data("""
+    {"generatedAt":1,"current":"","desktop":{"managed":false,"running":false,"runningKnown":true,"pendingRecovery":false},"accounts":[]}
+    """.utf8))
+    #expect(Format.title(empty, failed: false) == "Hotseat")
+}

@@ -42,7 +42,7 @@ private let home = URL(fileURLWithPath: "/Users/someone")
 @Test func failureCarriesStderr() async throws {
     let cli = try fakeHotseat("echo boom >&2; exit 1")
     await #expect(throws: HotseatError.failed(code: 1, stderr: "boom")) {
-        try await cli.use("claude2")
+        try await cli.use("claude2", restartDesktop: true)
     }
     #expect(HotseatError.failed(code: 1, stderr: "boom").message == "hotseat exited with 1: boom")
 }
@@ -60,4 +60,16 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     let cli = try fakeHotseat("head -c 1048576 /dev/zero; head -c 70000 /dev/zero >&2")
     let data = try await cli.run(["panel"], timeout: .seconds(10))
     #expect(data.count == 1_048_576)
+}
+
+@Test func useAsksBeforeRestartingDesktop() async throws {
+    // Like `hotseat use`: without --yes a running Desktop is left alone and
+    // the exit code is 3.
+    let cli = try fakeHotseat("""
+    [ "$1 $2" = "use claude2" ] || exit 9
+    if [ "$3" = "--yes" ]; then echo '{"current":"claude2"}'; exit 0; fi
+    echo '{"current":"claude2","desktopNeedsYes":true}'; exit 3
+    """)
+    #expect(try await cli.use("claude2", restartDesktop: false) == .needsDesktopRestart)
+    #expect(try await cli.use("claude2", restartDesktop: true) == .done)
 }

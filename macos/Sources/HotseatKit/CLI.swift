@@ -16,6 +16,13 @@ extension HotseatError {
     }
 }
 
+public enum UseOutcome: Equatable, Sendable {
+    case done
+    /// The CLI switched, but Claude Desktop is running and would have to
+    /// quit; ask, then call `use` again with `restartDesktop: true`.
+    case needsDesktopRestart
+}
+
 /// Runs the hotseat command line tool. The app reads and changes nothing
 /// itself; every action goes through here.
 public struct HotseatCLI: Sendable {
@@ -46,14 +53,32 @@ public struct HotseatCLI: Sendable {
         try Snapshot.decode(try await run(["panel", "--json"], timeout: .seconds(30)))
     }
 
-    /// Switches the CLI and Claude Desktop to `account` (Desktop is quit and
-    /// reopened if it is running).
-    public func use(_ account: String) async throws {
-        _ = try await run(["use", account, "--yes", "--json"], timeout: .seconds(120))
+    /// Switches the CLI and Claude Desktop to `account`. Without
+    /// `restartDesktop`, a running Desktop is left alone and the result says
+    /// so; hotseat checks that itself, on live process state.
+    public func use(_ account: String, restartDesktop: Bool) async throws -> UseOutcome {
+        var args = ["use", account, "--json"]
+        if restartDesktop {
+            args.insert("--yes", at: 2)
+        }
+        let (status, _, stderr) = try await runRaw(args, timeout: .seconds(120))
+        switch status {
+        case 0: return .done
+        case 3 where !restartDesktop: return .needsDesktopRestart
+        default: throw HotseatError.failed(code: status, stderr: stderr)
+        }
     }
 
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
+        let (status, out, stderr) = try await runRaw(args, timeout: timeout)
+        if status != 0 {
+            throw HotseatError.failed(code: status, stderr: stderr)
+        }
+        return out
+    }
+
+    private func runRaw(_ args: [String], timeout: Duration) async throws -> (Int32, Data, String) {
         let exe = executable
         return try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global().async {
@@ -66,7 +91,7 @@ public struct HotseatCLI: Sendable {
         var data = Data()
     }
 
-    private static func runBlocking(_ exe: URL, _ args: [String], timeout: Duration) throws -> Data {
+    private static func runBlocking(_ exe: URL, _ args: [String], timeout: Duration) throws -> (Int32, Data, String) {
         let p = Process()
         p.executableURL = exe
         p.arguments = args
@@ -96,10 +121,7 @@ public struct HotseatCLI: Sendable {
             throw HotseatError.timedOut(seconds: seconds)
         }
         drained.wait()
-        if p.terminationStatus != 0 {
-            let text = String(decoding: errBuf.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            throw HotseatError.failed(code: p.terminationStatus, stderr: text)
-        }
-        return outBuf.data
+        let text = String(decoding: errBuf.data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (p.terminationStatus, outBuf.data, text)
     }
 }

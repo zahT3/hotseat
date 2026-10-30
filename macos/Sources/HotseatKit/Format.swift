@@ -42,7 +42,7 @@ public enum Format {
     /// The status bar title.
     public static func title(_ s: Snapshot?, failed: Bool) -> String {
         if failed { return "Hotseat !" }
-        guard let s else { return "Hotseat" }
+        guard let s, !s.current.isEmpty else { return "Hotseat" }
         guard let a = s.accounts.first(where: { $0.account == s.current }) else { return s.current }
         if a.limitActive { return "\(a.account) LIMIT" }
         if let w = a.fiveHour {

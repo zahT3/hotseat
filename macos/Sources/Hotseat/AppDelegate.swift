@@ -9,9 +9,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
     private var snapshot: Snapshot?
     private var lastError: HotseatError?
-    private var refreshing = false
+    private var gate = RefreshGate()
     /// The account being switched to; rows ignore clicks meanwhile.
     private var switching: String?
+    /// An account clicked in the open menu, switched to once the menu closes.
+    private var pendingSwitch: String?
     private var timer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,6 +31,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refresh()
     }
 
+    func menuDidClose(_ menu: NSMenu) {
+        guard let name = pendingSwitch else { return }
+        pendingSwitch = nil
+        // Out of the menu's tracking loop before any alert or rebuild.
+        Task { self.beginSwitch(name) }
+    }
+
     private func cli() throws -> HotseatCLI {
         try HotseatCLI.locate(
             override: UserDefaults.standard.string(forKey: "hotseatPath"),
@@ -36,8 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func refresh() {
-        guard !refreshing else { return }
-        refreshing = true
+        guard gate.request() else { return }
+        startRefresh()
+    }
+
+    private func startRefresh() {
         Task {
             do {
                 snapshot = try await cli().snapshot()
@@ -45,8 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch {
                 lastError = error as? HotseatError ?? .failed(code: -1, stderr: "\(error)")
             }
-            refreshing = false
             render()
+            if gate.finish() {
+                startRefresh()
+            }
         }
     }
 
@@ -69,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let item = NSMenuItem()
                 item.view = host
                 menu.addItem(item)
+            }
+            if s.accounts.isEmpty {
+                menu.addItem(note("No accounts — run: hotseat init"))
             }
             if s.desktop.pendingRecovery {
                 menu.addItem(note("Desktop switch was interrupted — run: hotseat desktop recover"))
@@ -100,18 +117,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func tapped(_ name: String) {
+        guard switching == nil else { return }
+        pendingSwitch = name
         menu.cancelTracking()
-        guard switching == nil, let s = snapshot, let target = s.accounts.first(where: { $0.account == name }) else { return }
+    }
+
+    private func beginSwitch(_ name: String) {
+        guard switching == nil, let s = snapshot else { return }
         if name == s.current && (s.desktop.active == nil || s.desktop.active == name) { return }
-        // Desktop is restarted only when it runs and the target has a parked profile.
-        if s.desktop.running && target.desktop == "parked" && !UserDefaults.standard.bool(forKey: "skipDesktopConfirm") {
-            guard confirmDesktopRestart(name) else { return }
-        }
         switching = name
         render()
         Task {
             do {
-                try await cli().use(name)
+                let cli = try cli()
+                // hotseat decides on live state whether Desktop must restart.
+                let skipAsk = UserDefaults.standard.bool(forKey: "skipDesktopConfirm")
+                if try await cli.use(name, restartDesktop: skipAsk) == .needsDesktopRestart, confirmDesktopRestart(name) {
+                    _ = try await cli.use(name, restartDesktop: true)
+                }
             } catch {
                 show(error: error as? HotseatError ?? .failed(code: -1, stderr: "\(error)"))
             }
@@ -123,10 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func confirmDesktopRestart(_ name: String) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Switch to \(name)?"
-        alert.informativeText = "Claude Desktop will quit and reopen as \(name) on the session you were in. Anything running in Desktop right now will stop."
-        alert.addButton(withTitle: "Switch")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = "Restart Claude Desktop as \(name)?"
+        alert.informativeText = "New terminal sessions already use \(name). Claude Desktop is running as another account: Hotseat will quit it and reopen it as \(name) on the session you were in. Anything running in Desktop right now will stop."
+        alert.addButton(withTitle: "Restart Desktop")
+        alert.addButton(withTitle: "Not Now")
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Don't ask again"
         NSApp.activate()
