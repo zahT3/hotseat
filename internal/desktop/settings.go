@@ -259,8 +259,11 @@ func sameFile(a, b string) (bool, error) {
 	return bytes.Equal(ba, bb), nil
 }
 
-// treesEqual reports whether two paths hold the same files with the same
-// bytes (used to skip re-copying unchanged extensions on every switch).
+// treesEqual reports whether two paths hold the same files (used to skip
+// re-copying unchanged extensions on every switch). Files with the same size
+// and modification time count as equal without being read; a file whose
+// bytes match but whose mtime differs gets a's mtime, so the next check is
+// cheap too.
 func treesEqual(a, b string) bool {
 	ai, err1 := os.Lstat(a)
 	bi, err2 := os.Lstat(b)
@@ -271,8 +274,17 @@ func treesEqual(a, b string) bool {
 		if ai.Size() != bi.Size() {
 			return false
 		}
+		if ai.ModTime().Equal(bi.ModTime()) {
+			return true
+		}
 		same, err := sameFile(a, b)
-		return err == nil && same
+		if err != nil || !same {
+			return false
+		}
+		if ai.Mode()&os.ModeSymlink == 0 {
+			_ = os.Chtimes(b, ai.ModTime(), ai.ModTime())
+		}
+		return true
 	}
 	ae, err1 := os.ReadDir(a)
 	be, err2 := os.ReadDir(b)

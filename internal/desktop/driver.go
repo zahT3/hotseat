@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -64,18 +65,32 @@ func quitAndWait(d Driver, home string, timeout time.Duration) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if len(Running(procs, home)) == 0 {
+	running := Running(procs, home)
+	if len(running) == 0 {
 		return false, nil
 	}
-	return true, waitQuit(d, home, timeout)
+	return true, waitQuit(d, home, running, timeout)
 }
 
-func waitQuit(d Driver, home string, timeout time.Duration) error {
+// pidChecker is implemented by drivers that can tell cheaply whether a
+// process still exists; listing every process costs about half a second.
+type pidChecker interface {
+	Alive(pid int) bool
+}
+
+func waitQuit(d Driver, home string, running []Proc, timeout time.Duration) error {
 	if err := d.Quit(); err != nil {
 		return err
 	}
 	deadline := time.Now().Add(timeout)
+	pc, cheap := d.(pidChecker)
 	for {
+		if cheap {
+			for anyAlive(pc, running) && time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		// A full listing still decides: helpers may have started meanwhile.
 		procs, err := d.Procs()
 		if err != nil {
 			return err
@@ -91,12 +106,30 @@ func waitQuit(d Driver, home string, timeout time.Duration) error {
 			}
 			return fmt.Errorf("%w (pids %s); quit it and retry", ErrStillRunning, strings.Join(pids, ", "))
 		}
-		time.Sleep(500 * time.Millisecond)
+		running = left
+		if !cheap {
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
+}
+
+func anyAlive(pc pidChecker, procs []Proc) bool {
+	for _, p := range procs {
+		if pc.Alive(p.PID) {
+			return true
+		}
+	}
+	return false
 }
 
 // MacDriver drives the real Claude Desktop.
 type MacDriver struct{}
+
+// Alive sends signal 0, which only checks that the process exists.
+func (MacDriver) Alive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
 
 func (MacDriver) Procs() ([]Proc, error) {
 	out, err := exec.Command("ps", "-axo", "pid=,comm=").Output()
