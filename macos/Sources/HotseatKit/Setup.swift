@@ -85,7 +85,7 @@ public struct SetupStep: Identifiable, Sendable {
             return SetupStep(id: "cli", title: title, done: false,
                              detail: "Updates \(where_) (\(v)) with \(bundledVersion), installed to ~/.local/bin", commands: nil)
         }
-        return SetupStep(id: "cli", title: title, done: true, detail: "hotseat \(installedVersion ?? "") at \(where_)", commands: nil)
+        return SetupStep(id: "cli", title: title, done: true, detail: "hotseat \(installedVersion ?? "") is installed", commands: nil)
     }
 }
 

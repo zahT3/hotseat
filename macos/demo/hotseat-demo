@@ -26,6 +26,9 @@ case "$1 $2" in
  ]}
 JSON
   ;;
+"version --json")
+  echo '{"version":"0.1.0"}'
+  ;;
 "setup status")
   echo '{"version":"0.1.0","accounts":3,"loginsFound":3,"shareActions":0,"shim":true,"statusline":false,"hook":false,"desktop":"adopted"}'
   ;;
