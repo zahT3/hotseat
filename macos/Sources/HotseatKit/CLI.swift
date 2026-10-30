@@ -69,6 +69,12 @@ public struct HotseatCLI: Sendable {
         }
     }
 
+    /// Sets the user's label for `account`; blank text clears it.
+    public func setNote(_ account: String, _ note: String) async throws {
+        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try await run(["note", account] + (text.isEmpty ? [] : [text]) + ["--json"], timeout: .seconds(30))
+    }
+
     /// Runs hotseat off the main thread and returns its stdout.
     public func run(_ args: [String], timeout: Duration) async throws -> Data {
         let (status, out, stderr) = try await runRaw(args, timeout: timeout)

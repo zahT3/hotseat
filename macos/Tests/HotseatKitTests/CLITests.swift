@@ -73,3 +73,29 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     #expect(try await cli.use("claude2", restartDesktop: false) == .needsDesktopRestart)
     #expect(try await cli.use("claude2", restartDesktop: true) == .done)
 }
+
+@Test func setNotePassesTextAsOneArgument() async throws {
+    let cli = try fakeHotseat("""
+    [ "$1" = note ] && [ "$2" = claude2 ] && [ "$3" = "Work laptop" ] && [ "$4" = --json ] || { echo "bad args: $*" >&2; exit 9; }
+    """)
+    try await cli.setNote("claude2", "Work laptop")
+    let clear = try fakeHotseat("""
+    [ "$#" = 3 ] && [ "$3" = --json ] || { echo "bad args: $*" >&2; exit 9; }
+    """)
+    try await clear.setNote("claude2", "  ")
+}
+
+@Test func addAccountNames() {
+    #expect(AddAccount.isValidName("work"))
+    #expect(AddAccount.isValidName("claude4.b_2-x"))
+    #expect(!AddAccount.isValidName(""))
+    #expect(!AddAccount.isValidName("-x"))
+    #expect(!AddAccount.isValidName("a b"))
+    #expect(!AddAccount.isValidName("a'b"))
+}
+
+@Test func addAccountScriptQuotesPath() {
+    let s = AddAccount.script(hotseat: URL(fileURLWithPath: "/Users/o'neil/bin/hotseat"), name: "work")
+    #expect(s.hasPrefix("#!/bin/zsh -il\n"))
+    #expect(s.contains("'/Users/o'\\''neil/bin/hotseat' add 'work'"))
+}

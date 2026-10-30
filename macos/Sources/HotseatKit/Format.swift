@@ -8,9 +8,29 @@ public enum Format {
         if w.reset { return "0% (reset)" }
         var s = "\(String(format: "%.0f", w.usedPercent))%"
         if w.resetsAt > 0 {
-            s += " · " + when(w.resetsAt, now: now, calendar: calendar)
+            s += " · " + resets(w.resetsAt, now: now, calendar: calendar)
         }
         return s
+    }
+
+    /// A countdown within a day ("in 3h 53m"), a weekday and time after.
+    public static func resets(_ unix: Int64, now: Date, calendar: Calendar = .current) -> String {
+        let left = unix - Int64(now.timeIntervalSince1970)
+        guard left < 86400 else { return when(unix, now: now, calendar: calendar) }
+        let minutes = max(0, (left + 59) / 60)
+        switch (minutes / 60, minutes % 60) {
+        case (0, let m): return "in \(m)m"
+        case (let h, 0): return "in \(h)h"
+        case (let h, let m): return "in \(h)h \(m)m"
+        }
+    }
+
+    public static func limit(_ l: LimitHit?, now: Date, calendar: Calendar = .current) -> String {
+        guard let l, l.resetsAt > 0 else { return "Limit reached" }
+        if l.resetsAt - Int64(now.timeIntervalSince1970) < 86400 {
+            return "Limit · resets " + resets(l.resetsAt, now: now, calendar: calendar)
+        }
+        return "Limit until " + when(l.resetsAt, now: now, calendar: calendar)
     }
 
     public static func when(_ unix: Int64, now: Date, calendar: Calendar = .current) -> String {
@@ -45,10 +65,10 @@ public enum Format {
         if failed { return "Hotseat !" }
         guard let s, !s.current.isEmpty else { return "Hotseat" }
         guard let a = s.accounts.first(where: { $0.account == s.current }) else { return s.current }
-        if a.limitActive { return "\(a.account) LIMIT" }
+        if a.limitActive { return "\(a.shortName) LIMIT" }
         if let w = a.fiveHour {
-            return "\(a.account) \(String(format: "%.0f", w.reset ? 0 : w.usedPercent))%"
+            return "\(a.shortName) \(String(format: "%.0f", w.reset ? 0 : w.usedPercent))%"
         }
-        return a.account
+        return a.shortName
     }
 }

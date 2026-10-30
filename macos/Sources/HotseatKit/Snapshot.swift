@@ -43,13 +43,38 @@ public struct AccountInfo: Decodable, Identifiable, Sendable {
     public var error: String?
     public var desktop: String
     public var desktopProblem: String?
+    public var email: String?
+    public var note: String?
 
     public var id: String { account }
+
+    /// The user's note, else the login's email, else the account name.
+    public var displayName: String {
+        nonEmpty(note) ?? nonEmpty(email) ?? account
+    }
+
+    /// The name Hotseat uses, plus the email when a note hides it.
+    public var detail: String? {
+        if nonEmpty(note) != nil {
+            return nonEmpty(email).map { "\(account) · \($0)" } ?? account
+        }
+        return nonEmpty(email) != nil ? account : nil
+    }
+
+    /// For the status bar: the note or the account name, never the email.
+    public var shortName: String {
+        nonEmpty(note) ?? account
+    }
 
     /// When the newer of the two usage windows was observed.
     public var observedAt: Int64? {
         [fiveHour?.observedAt, sevenDay?.observedAt].compactMap { $0 }.filter { $0 > 0 }.max()
     }
+}
+
+private func nonEmpty(_ s: String?) -> String? {
+    guard let s, !s.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+    return s
 }
 
 public struct UsageWindow: Decodable, Sendable {
@@ -72,4 +97,10 @@ public struct LimitHit: Decodable, Sendable {
     public var message: String
     public var resetsAt: Int64
     public var observedAt: Int64
+
+    public init(message: String, resetsAt: Int64, observedAt: Int64) {
+        self.message = message
+        self.resetsAt = resetsAt
+        self.observedAt = observedAt
+    }
 }

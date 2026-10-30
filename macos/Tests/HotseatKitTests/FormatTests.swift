@@ -65,7 +65,34 @@ private func window(_ pct: Double, resets: String?, reset: Bool = false) -> Usag
 @Test func windowValueText() {
     #expect(Format.value(nil, now: now, calendar: shanghai) == "?")
     #expect(Format.value(window(0, resets: "2026-10-30 08:00", reset: true), now: now, calendar: shanghai) == "0% (reset)")
-    #expect(Format.value(window(12.4, resets: "2026-10-30 18:00"), now: now, calendar: shanghai) == "12% · 18:00")
+    #expect(Format.value(window(12.4, resets: "2026-10-30 14:30"), now: now, calendar: shanghai) == "12% · in 4h 30m")
+    #expect(Format.value(window(12, resets: "2026-10-30 18:00"), now: now, calendar: shanghai) == "12% · in 8h")
+    #expect(Format.value(window(12, resets: "2026-10-30 10:42"), now: now, calendar: shanghai) == "12% · in 42m")
     #expect(Format.value(window(65, resets: "2026-11-04 03:00"), now: now, calendar: shanghai) == "65% · Wed 03:00")
     #expect(Format.value(window(79, resets: nil), now: now, calendar: shanghai) == "79%")
+}
+
+@Test func limitText() {
+    #expect(Format.limit(LimitHit(message: "", resetsAt: ts("2026-10-30 15:30"), observedAt: 0), now: now, calendar: shanghai) == "Limit · resets in 5h 30m")
+    #expect(Format.limit(LimitHit(message: "", resetsAt: ts("2026-11-01 18:00"), observedAt: 0), now: now, calendar: shanghai) == "Limit until Sun 18:00")
+    #expect(Format.limit(LimitHit(message: "", resetsAt: 0, observedAt: 0), now: now, calendar: shanghai) == "Limit reached")
+    #expect(Format.limit(nil, now: now, calendar: shanghai) == "Limit reached")
+}
+
+@Test func displayNames() throws {
+    func info(_ note: String?, _ email: String?) throws -> AccountInfo {
+        var fields = ["\"account\":\"claude2\"", "\"current\":false", "\"limitActive\":false", "\"desktop\":\"none\""]
+        if let note { fields.append("\"note\":\"\(note)\"") }
+        if let email { fields.append("\"email\":\"\(email)\"") }
+        return try JSONDecoder().decode(AccountInfo.self, from: Data(("{" + fields.joined(separator: ",") + "}").utf8))
+    }
+    let both = try info("Work", "b@x.com")
+    #expect(both.displayName == "Work" && both.detail == "claude2 · b@x.com")
+    let noteOnly = try info("Work", nil)
+    #expect(noteOnly.displayName == "Work" && noteOnly.detail == "claude2")
+    let emailOnly = try info(nil, "b@x.com")
+    #expect(emailOnly.displayName == "b@x.com" && emailOnly.detail == "claude2")
+    let bare = try info(nil, nil)
+    #expect(bare.displayName == "claude2" && bare.detail == nil)
+    #expect(bare.shortName == "claude2" && both.shortName == "Work")
 }
