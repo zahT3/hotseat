@@ -24,7 +24,7 @@ enum StatusIcon {
         return image
     }
 
-    static let switching: NSImage? = {
+    @MainActor static let switching: NSImage? = {
         let image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "Switching")
         image?.isTemplate = true
         return image
