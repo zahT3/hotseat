@@ -1,6 +1,7 @@
 ---
 name: Feature request
 about: Something Hotseat could do
+title: ""
 labels: enhancement
 ---
 
