@@ -4,7 +4,7 @@
 
 Hotseat is for people who have more than one Claude account, such as work and personal. It switches Claude Code and Claude Desktop between them in one click. Your sessions, settings, skills and history stay where they are, so a conversation you started under one account can be continued under another. It never touches your login tokens.
 
-![The Hotseat menu](docs/images/menu.png)
+![Hotseat: one click moves the session to another account](docs/images/hotseat.gif)
 
 macOS 14 or later. Free and open source (MIT). Not affiliated with Anthropic.
 
@@ -13,6 +13,8 @@ macOS 14 or later. Free and open source (MIT). Not affiliated with Anthropic.
 Switching Claude accounts by hand means logging out and back in. You lose your place, the Code session list in Claude Desktop belongs to one account only, and `claude --resume` in a second config dir sees none of your history. Hotseat keeps one workspace and lets accounts take turns in it, like players on a hotseat.
 
 ## What you get
+
+![The Hotseat menu](docs/images/menu.png)
 
 - **A menu bar view of every account.** It shows 5-hour and weekly usage, when each resets, how old the numbers are, and which account the terminal (CLI) and Claude Desktop each use.
 - **One-click switching.** Click an account to move both the CLI and Claude Desktop to it. Use its **CLI** or **Desktop** button to move just one of them. Desktop restarts on the session you were in. The Code session list is the same for every account.
