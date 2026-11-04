@@ -21,4 +21,5 @@ Thanks for helping. Hotseat is small on purpose; please open an issue before a l
 
 - Write a failing test first. Bug fixes come with the test that reproduces the bug.
 - Keep changes focused. Comments explain why the code does something, not what changed.
+- README.md and README.zh-CN.md change together, in the same commit. If you cannot write the Chinese, say so in the PR and a maintainer will.
 - SwiftUI in this repo avoids `@State`, because the Command Line Tools ship no SwiftUIMacros plugin; use `@Observable` classes instead. Menu views avoid `.onHover` and `.help`: their tracking areas keep the app busy while idle.

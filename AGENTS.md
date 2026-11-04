@@ -33,6 +33,7 @@ Toolchain: Go 1.26, Swift 6 with only the Xcode Command Line Tools (CI uses an o
 
 - TDD: write the failing test first and watch it fail; bug fixes come with the test that reproduces the bug.
 - Keep changes small and focused; comments explain why, not what changed.
+- README.md and README.zh-CN.md change together, in the same commit.
 - SwiftUI: no `@State` (the CLT ship no SwiftUIMacros plugin) — keep view state in `@Observable` classes.
 - Menu views: no `.onHover` or `.help` (their tracking areas kept the app busy while idle); `MenuCardView` draws the highlight.
 - Modal alerts run through `later {}` on the main queue, never inside a Swift `Task` (that crashed the app).

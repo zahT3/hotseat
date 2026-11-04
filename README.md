@@ -1,5 +1,7 @@
 # Hotseat
 
+**English** · [简体中文](README.zh-CN.md)
+
 **Claude account switcher for macOS: switch accounts, keep your place.**
 
 Hotseat is for people who have more than one Claude account, such as work and personal. It switches Claude Code and Claude Desktop between them in one click. Your sessions, settings, skills and history stay where they are, so a conversation you started under one account can be continued under another. It never touches your login tokens.
