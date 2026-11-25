@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // Sample is Claude Desktop's latest usage reading for one organization.
@@ -13,6 +14,22 @@ type Sample struct {
 	T        int64    // Unix seconds
 	FiveHour *float64 // nil when Desktop did not record it
 	SevenDay *float64
+}
+
+// Fresh is the sample without the windows it is too old to describe.
+// Desktop records no reset times, so age is the only evidence: a 5-hour
+// reading older than five hours, or a weekly one older than seven days,
+// belongs to a window that has ended. A parked profile's history stops
+// when Desktop leaves it, so its last reading would otherwise stand forever.
+func (s Sample) Fresh(now time.Time) Sample {
+	age := now.Sub(time.Unix(s.T, 0))
+	if age > 5*time.Hour {
+		s.FiveHour = nil
+	}
+	if age > 7*24*time.Hour {
+		s.SevenDay = nil
+	}
+	return s
 }
 
 // ReadDesktopSamples reads Desktop's plan-usage-history.json and keeps the

@@ -58,6 +58,7 @@ func loadRecords(p paths.Paths, reg account.Registry) (map[string]usage.Record, 
 			histories = append(histories, samples)
 		}
 	}
+	now := clock()
 	records := map[string]usage.Record{}
 	errs := map[string]error{}
 	for _, a := range reg.Accounts {
@@ -68,6 +69,7 @@ func loadRecords(p paths.Paths, reg account.Registry) (map[string]usage.Record, 
 		}
 		for _, samples := range histories {
 			if s, ok := samples[a.OrgUUID]; ok {
+				s = s.Fresh(now)
 				r = usage.MergeDesktop(r, &s)
 			}
 		}

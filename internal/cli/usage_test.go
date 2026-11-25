@@ -139,3 +139,40 @@ func TestUsageRetainsDesktopSampleAcrossSwitch(t *testing.T) {
 	}
 	checkSample("after switch")
 }
+
+// A parked profile's history stops when Desktop leaves it, so its 5-hour
+// reading must not stand for longer than five hours.
+func TestUsageDropsStaleDesktopReading(t *testing.T) {
+	p := useSetup(t)
+	defer cli.SetDesktopDriver(&fakeDesktop{})()
+	at := time.Unix(1_900_000_000, 0)
+	testutil.WriteFile(t, filepath.Join(p.DesktopDataDir(), "plan-usage-history.json"),
+		`{"samples":[{"t":1900000000000,"org":"o1","u":{"fh":95,"sd":40}}]}`)
+	if code, _, errText := run(t, "desktop", "switch", "claude2"); code != 0 {
+		t.Fatal(errText)
+	}
+	defer cli.SetClock(func() time.Time { return at.Add(72 * time.Hour) })()
+	code, out, errText := run(t, "usage", "--json")
+	if code != 0 {
+		t.Fatal(errText)
+	}
+	var rows []struct {
+		Account            string
+		FiveHour, SevenDay *usage.Window
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Account == "claude" {
+			if row.FiveHour != nil {
+				t.Errorf("3 days old 5-hour reading still shown: %+v", row.FiveHour)
+			}
+			if row.SevenDay == nil || row.SevenDay.UsedPercent != 40 {
+				t.Errorf("weekly reading should stay: %+v", row.SevenDay)
+			}
+			return
+		}
+	}
+	t.Fatal("missing account claude")
+}
