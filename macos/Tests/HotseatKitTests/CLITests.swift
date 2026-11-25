@@ -110,7 +110,8 @@ private let home = URL(fileURLWithPath: "/Users/someone")
 @Test func partialSwitchesAndRemove() async throws {
     let cli = try fakeHotseat("""
     case "$*" in
-      "use claude2 --cli-only --json"|"desktop switch claude2 --resume current --json"|"remove claude2 --yes --json") exit 0 ;;
+      "use claude2 --cli-only --json"|"desktop switch claude2 --resume current --json") exit 0 ;;
+      "remove claude2 --yes --json") echo '{"removed":"claude2","backup":"/tmp/backup","loggedOut":true}' ;;
       *) echo "bad args: $*" >&2; exit 9 ;;
     esac
     """)
@@ -169,4 +170,14 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     [ "$*" = "version --json" ] && echo '{"version":"0.1.0"}' || exit 9
     """)
     #expect(try await cli.version() == "0.1.0")
+}
+
+@Test func removeSurfacesIncompleteLogout() async throws {
+    let cli = try fakeHotseat("""
+    [ "$*" = "remove claude2 --yes --json" ] || exit 9
+    echo '{"removed":"claude2","backup":"/tmp/example-backup","loggedOut":false}'
+    """)
+    await #expect(throws: HotseatError.logoutIncomplete(account: "claude2", backup: "/tmp/example-backup")) {
+        try await cli.remove("claude2")
+    }
 }

@@ -2,6 +2,7 @@ import Foundation
 
 /// Errors from talking to the hotseat CLI, worded for the menu.
 public enum HotseatError: Error, Equatable, Sendable {
+    case logoutIncomplete(account: String, backup: String)
     case notFound(tried: [String])
     case failed(code: Int32, stderr: String)
     case timedOut(seconds: Int)

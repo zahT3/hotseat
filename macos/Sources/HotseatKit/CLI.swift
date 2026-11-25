@@ -4,6 +4,8 @@ extension HotseatError {
     /// One line for the menu or an alert.
     public var message: String {
         switch self {
+        case let .logoutIncomplete(account, backup):
+            return "Hotseat removed \(account), but Claude Code could not sign out. The account's files are in \(backup)."
         case .notFound(let tried):
             return "hotseat CLI not found; tried: " + tried.joined(separator: ", ")
         case .failed(let code, let stderr):
@@ -117,7 +119,18 @@ public struct HotseatCLI: Sendable {
 
     /// Signs `account` out and moves its files into a Hotseat backup.
     public func remove(_ account: String) async throws {
-        _ = try await run(["remove", account, "--yes", "--json"], timeout: .seconds(60))
+        struct Removal: Decodable {
+            let removed: String
+            let loggedOut: Bool
+            let backup: String
+        }
+        let data = try await run(["remove", account, "--yes", "--json"], timeout: .seconds(60))
+        guard let result = try? JSONDecoder().decode(Removal.self, from: data), result.removed == account else {
+            throw HotseatError.badOutput("invalid account removal result")
+        }
+        if !result.loggedOut {
+            throw HotseatError.logoutIncomplete(account: account, backup: result.backup)
+        }
     }
 
     /// Sets the symbol shown for `account`; nil clears it.
