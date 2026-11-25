@@ -102,3 +102,40 @@ func TestUsageSurvivesCorruptRecord(t *testing.T) {
 		t.Errorf("exit %d out %q err %q", code, out, stderr)
 	}
 }
+
+func TestUsageRetainsDesktopSampleAcrossSwitch(t *testing.T) {
+	p := useSetup(t)
+	defer cli.SetDesktopDriver(&fakeDesktop{})()
+	now := time.Unix(1_900_000_000, 0)
+	defer cli.SetClock(func() time.Time { return now })()
+	testutil.WriteFile(t, filepath.Join(p.DesktopDataDir(), "plan-usage-history.json"),
+		`{"samples":[{"t":1900000000000,"org":"o1","u":{"fh":80,"sd":70}}]}`)
+	checkSample := func(stage string) {
+		t.Helper()
+		code, out, errText := run(t, "usage", "--json")
+		if code != 0 {
+			t.Fatal(errText)
+		}
+		var rows []struct {
+			Account  string
+			FiveHour *usage.Window
+		}
+		if err := json.Unmarshal([]byte(out), &rows); err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Account == "claude" {
+				if row.FiveHour == nil || row.FiveHour.UsedPercent != 80 || row.FiveHour.ObservedAt != now.Unix() {
+					t.Fatalf("%s: expected original 80%% reading for claude, got %+v", stage, row.FiveHour)
+				}
+				return
+			}
+		}
+		t.Fatalf("%s: missing account claude", stage)
+	}
+	checkSample("before switch")
+	if code, _, errText := run(t, "desktop", "switch", "claude2"); code != 0 {
+		t.Fatal(errText)
+	}
+	checkSample("after switch")
+}

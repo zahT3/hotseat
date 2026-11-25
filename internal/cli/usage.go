@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/zahT3/hotseat/internal/account"
+	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/paths"
 	"github.com/zahT3/hotseat/internal/usage"
 )
@@ -42,9 +43,20 @@ func view(w *usage.Window, now time.Time) *windowView {
 // loadRecords reads every account's record with Claude Desktop's samples
 // merged in: the one view both `usage` and the handoff recommendation use.
 func loadRecords(p paths.Paths, reg account.Registry) (map[string]usage.Record, map[string]error) {
-	samples, err := usage.ReadDesktopSamples(filepath.Join(p.DesktopDataDir(), "plan-usage-history.json"))
-	if err != nil {
-		samples = nil
+	dirs := []string{p.DesktopDataDir()}
+	if state, err := desktop.LoadState(p); err == nil {
+		for _, a := range reg.Accounts {
+			if _, managed := state.Profiles[a.Name]; managed && a.Name != state.Active {
+				dirs = append(dirs, p.DesktopProfileDir(a.Name))
+			}
+		}
+	}
+	var histories []map[string]usage.Sample
+	for _, dir := range dirs {
+		samples, err := usage.ReadDesktopSamples(filepath.Join(dir, "plan-usage-history.json"))
+		if err == nil && len(samples) > 0 {
+			histories = append(histories, samples)
+		}
 	}
 	records := map[string]usage.Record{}
 	errs := map[string]error{}
@@ -54,8 +66,10 @@ func loadRecords(p paths.Paths, reg account.Registry) (map[string]usage.Record, 
 			errs[a.Name] = err
 			r = usage.Record{Account: a.Name}
 		}
-		if s, ok := samples[a.OrgUUID]; ok {
-			r = usage.MergeDesktop(r, &s)
+		for _, samples := range histories {
+			if s, ok := samples[a.OrgUUID]; ok {
+				r = usage.MergeDesktop(r, &s)
+			}
 		}
 		records[a.Name] = r
 	}
