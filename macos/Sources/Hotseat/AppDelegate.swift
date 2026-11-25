@@ -325,21 +325,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func switchDesktopOnly(_ name: String) {
         guard model.switching == nil, let s = model.snapshot, s.desktop.active != name else { return }
-        if s.desktop.running && model.askBeforeDesktopRestart {
-            let label = s.accounts.first { $0.account == name }?.displayName ?? name
-            let alert = NSAlert()
-            alert.messageText = "Restart Claude Desktop as \(label)?"
-            alert.informativeText = "Hotseat will quit Claude Desktop and reopen it as \(label) on the session you were in. Anything running in Desktop right now will stop. Terminal sessions are not affected."
-            alert.addButton(withTitle: "Restart Desktop")
-            alert.addButton(withTitle: "Cancel")
-            NSApp.activate()
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
         model.switching = name
         render()
         Task {
             do {
-                try await cli().switchDesktop(name)
+                if try await cli().switchDesktop(name, restartDesktop: !model.askBeforeDesktopRestart) == .needsDesktopRestart {
+                    later { self.askToRestartDesktop(name, desktopOnly: true) }
+                    return
+                }
             } catch {
                 report(error)
             }
@@ -366,11 +359,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
     }
 
-    private func askToRestartDesktop(_ name: String) {
+    private func askToRestartDesktop(_ name: String, desktopOnly: Bool = false) {
         let label = model.snapshot?.accounts.first { $0.account == name }?.displayName ?? name
         let alert = NSAlert()
         alert.messageText = "Restart Claude Desktop as \(label)?"
-        alert.informativeText = "New terminal sessions already use \(label). Claude Desktop is running as another account: Hotseat will quit it and reopen it as \(label) on the session you were in. Anything running in Desktop right now will stop."
+        let terminals = desktopOnly ? "Terminal sessions are not affected." : "New terminal sessions already use \(label)."
+        alert.informativeText = "\(terminals) Hotseat will quit Claude Desktop and reopen it as \(label) on the session you were in. Anything running in Desktop right now will stop."
         alert.addButton(withTitle: "Restart Desktop")
         alert.addButton(withTitle: "Not Now")
         alert.showsSuppressionButton = true
@@ -385,7 +379,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         Task {
             do {
-                _ = try await cli().use(name, restartDesktop: true)
+                if desktopOnly {
+                    try await cli().switchDesktop(name, restartDesktop: true)
+                } else {
+                    _ = try await cli().use(name, restartDesktop: true)
+                }
             } catch {
                 report(error)
             }

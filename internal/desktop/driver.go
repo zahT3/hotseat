@@ -28,6 +28,7 @@ type Driver interface {
 }
 
 var ErrStillRunning = errors.New("Claude Desktop is still running")
+var ErrRestartRequired = errors.New("switching requires restarting Claude Desktop")
 
 // Running filters the processes that may touch Desktop's data dir: anything
 // from a Claude.app bundle (wherever an update put it) except the Chrome
@@ -55,12 +56,12 @@ func Running(procs []Proc, home string) []Proc {
 // QuitAndWait asks Desktop to quit and waits for every process of it to
 // exit. It never force-kills: a running Code session may be mid-task.
 func QuitAndWait(d Driver, home string, timeout time.Duration) error {
-	_, err := quitAndWait(d, home, timeout)
+	_, err := quitAndWait(d, home, timeout, false)
 	return err
 }
 
 // quitAndWait is QuitAndWait that also reports whether Desktop was running.
-func quitAndWait(d Driver, home string, timeout time.Duration) (bool, error) {
+func quitAndWait(d Driver, home string, timeout time.Duration, ifIdle bool) (bool, error) {
 	procs, err := d.Procs()
 	if err != nil {
 		return false, err
@@ -68,6 +69,9 @@ func quitAndWait(d Driver, home string, timeout time.Duration) (bool, error) {
 	running := Running(procs, home)
 	if len(running) == 0 {
 		return false, nil
+	}
+	if ifIdle {
+		return true, ErrRestartRequired
 	}
 	return true, waitQuit(d, home, running, timeout)
 }

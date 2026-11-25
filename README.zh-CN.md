@@ -98,6 +98,7 @@ hotseat accounts                 # 已注册的账号；* 标出当前账号
 hotseat use work [--yes]         # CLI 和 Desktop 都切到 work（--yes 允许重启正在运行的 Desktop）
 hotseat use work --cli-only      # 只影响新开的终端会话
 hotseat desktop switch work      # 只切 Claude Desktop
+hotseat desktop switch work --if-idle  # 如需退出正在运行的 Desktop，返回退出码 3
 hotseat usage                    # 5 小时和每周用量、重置时间、数据新旧
 hotseat add work                 # 新账号：建配置目录，走 Claude 自己的登录
 hotseat remove work --yes        # 退出登录，把它的文件移进备份

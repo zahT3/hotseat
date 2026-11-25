@@ -91,3 +91,21 @@ func TestUseReportsDesktopIdentityDrift(t *testing.T) {
 		t.Errorf("exit %d out %q err %q", code, out, stderr)
 	}
 }
+
+func TestDesktopOnlySwitchChecksLiveStateBeforeQuitting(t *testing.T) {
+	p := useSetup(t)
+	d := &fakeDesktop{stopOnQuit: true}
+	defer cli.SetDesktopDriver(d)()
+	if code, snapshot := panel(t); code != 0 || snapshot.Desktop.Running {
+		t.Fatal("expected an idle Desktop in the menu snapshot")
+	}
+	d.running = desktopApp
+	code, _, stderr := run(t, "desktop", "switch", "claude2", "--resume", "current", "--if-idle", "--json")
+	if code != 3 || d.quits != 0 || activeDesktop(t, p) != "claude" {
+		t.Fatalf("unconfirmed switch: exit %d, quits %d, active %q, stderr %q", code, d.quits, activeDesktop(t, p), stderr)
+	}
+	code, _, stderr = run(t, "desktop", "switch", "claude2", "--resume", "current", "--json")
+	if code != 0 || d.quits != 1 || activeDesktop(t, p) != "claude2" {
+		t.Fatalf("confirmed switch: exit %d, quits %d, stderr %q", code, d.quits, stderr)
+	}
+}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -254,33 +255,42 @@ func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int
 const desktopQuitTimeout = 20 * time.Second
 
 func cmdDesktopSwitch(p paths.Paths, args []string, stdout, stderr io.Writer) int {
-	var to, resume string
+	var to string
+	opts := desktop.SwitchOptions{Timeout: desktopQuitTimeout}
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--resume" && i+1 < len(args):
-			resume = args[i+1]
+			opts.Resume = args[i+1]
 			i++
+		case args[i] == "--if-idle":
+			opts.IfIdle = true
 		case args[i] == "--json":
 		case to == "":
 			to = args[i]
 		default:
-			fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>]")
+			fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>] [--if-idle]")
 			return 1
 		}
 	}
 	if to == "" {
-		fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>]")
+		fmt.Fprintln(stderr, "usage: hotseat desktop switch <account> [--resume current|<session-id>] [--if-idle]")
 		return 1
 	}
-	return switchDesktop(p, to, resume, hasFlag(args, "--json"), stdout, stderr)
+	return switchDesktop(p, to, opts, hasFlag(args, "--json"), stdout, stderr)
 }
 
-func switchDesktop(p paths.Paths, to, resume string, jsonOut bool, stdout, stderr io.Writer) int {
+func switchDesktop(p paths.Paths, to string, opts desktop.SwitchOptions, jsonOut bool, stdout, stderr io.Writer) int {
 	reg, err := account.LoadRegistry(p)
 	if err != nil {
 		return fail(stderr, err)
 	}
-	res, err := desktop.Switch(p, reg, desktopDriver, to, desktop.SwitchOptions{Resume: resume, Timeout: desktopQuitTimeout})
+	res, err := desktop.Switch(p, reg, desktopDriver, to, opts)
+	if errors.Is(err, desktop.ErrRestartRequired) {
+		if rc := report(stdout, stderr, jsonOut, map[string]bool{"desktopNeedsYes": true}, err.Error()); rc != 0 {
+			return rc
+		}
+		return 3
+	}
 	if err != nil {
 		return fail(stderr, err)
 	}
@@ -328,7 +338,7 @@ func cmdDesktopAdd(p paths.Paths, args []string, yes bool, stdout, stderr io.Wri
 	if err := desktop.AddProfile(p, args[0]); err != nil {
 		return fail(stderr, err)
 	}
-	if rc := switchDesktop(p, args[0], "", false, io.Discard, stderr); rc != 0 {
+	if rc := switchDesktop(p, args[0], desktop.SwitchOptions{Timeout: desktopQuitTimeout}, false, io.Discard, stderr); rc != 0 {
 		return rc
 	}
 	fmt.Fprintf(stdout, "Claude Desktop opened with an empty profile for %s: log in to that account once; Hotseat checks it on the next switch\n", args[0])

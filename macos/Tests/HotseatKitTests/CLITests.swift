@@ -62,6 +62,18 @@ private let home = URL(fileURLWithPath: "/Users/someone")
     #expect(data.count == 1_048_576)
 }
 
+@Test func desktopOnlySwitchRequestsConfirmationFromCLI() async throws {
+    let cli = try fakeHotseat("""
+    case "$*" in
+      "desktop switch claude2 --resume current --json --if-idle") exit 3 ;;
+      "desktop switch claude2 --resume current --json") exit 0 ;;
+      *) exit 9 ;;
+    esac
+    """)
+    #expect(try await cli.switchDesktop("claude2", restartDesktop: false) == .needsDesktopRestart)
+    #expect(try await cli.switchDesktop("claude2", restartDesktop: true) == .done)
+}
+
 @Test func useAsksBeforeRestartingDesktop() async throws {
     // Like `hotseat use`: without --yes a running Desktop is left alone and
     // the exit code is 3.

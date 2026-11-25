@@ -84,6 +84,10 @@ public struct HotseatCLI: Sendable {
         if restartDesktop {
             args.insert("--yes", at: 2)
         }
+        return try await switchOutcome(args, restartDesktop: restartDesktop)
+    }
+
+    private func switchOutcome(_ args: [String], restartDesktop: Bool) async throws -> UseOutcome {
         let (status, _, stderr) = try await runRaw(args, timeout: .seconds(120))
         switch status {
         case 0: return .done
@@ -111,8 +115,13 @@ public struct HotseatCLI: Sendable {
 
     /// Moves only Claude Desktop to `account`, reopening the session that
     /// was focused (quits a running Desktop first).
-    public func switchDesktop(_ account: String) async throws {
-        _ = try await run(["desktop", "switch", account, "--resume", "current", "--json"], timeout: .seconds(120))
+    @discardableResult
+    public func switchDesktop(_ account: String, restartDesktop: Bool = true) async throws -> UseOutcome {
+        var args = ["desktop", "switch", account, "--resume", "current", "--json"]
+        if !restartDesktop {
+            args.append("--if-idle")
+        }
+        return try await switchOutcome(args, restartDesktop: restartDesktop)
     }
 
     /// Signs `account` out and moves its files into a Hotseat backup.

@@ -96,6 +96,7 @@ hotseat accounts                 # registered accounts; * marks the current one
 hotseat use work [--yes]         # CLI and Desktop to `work` (--yes lets it restart a running Desktop)
 hotseat use work --cli-only      # only new terminal sessions
 hotseat desktop switch work      # only Claude Desktop
+hotseat desktop switch work --if-idle  # exit 3 if Desktop would have to quit
 hotseat usage                    # 5-hour and weekly usage, reset times, data age
 hotseat add work                 # new account: config dir + Claude's own login
 hotseat remove work --yes        # sign out, move its files into a backup

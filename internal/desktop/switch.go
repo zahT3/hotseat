@@ -19,6 +19,8 @@ type SwitchOptions struct {
 	Timeout time.Duration
 	// NoLaunch leaves Desktop closed after the swap (it was not running).
 	NoLaunch bool
+	// IfIdle refuses to quit a running Desktop, using the live driver check.
+	IfIdle bool
 }
 
 type SwitchResult struct {
@@ -106,7 +108,7 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 	if resume == "current" {
 		resume, _ = CurrentSession(p.DesktopDataDir(), from.AccountUUID, from.OrgUUID)
 	}
-	wasRunning, err := quitAndWait(d, p.Home, opts.Timeout)
+	wasRunning, err := quitAndWait(d, p.Home, opts.Timeout, opts.IfIdle)
 	if err != nil {
 		return res, err
 	}
