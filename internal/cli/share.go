@@ -143,7 +143,7 @@ func cmdShareRollback(p paths.Paths, args []string, stdout, stderr io.Writer) in
 	jsonOut := hasFlag(args, "--json")
 	for _, m := range moved {
 		if !jsonOut {
-			fmt.Fprintf(stdout, "changed since the apply, moved aside (not deleted): %s\n", tildePath(p, m))
+			fmt.Fprintf(stdout, "saved during rollback: %s\n", tildePath(p, m))
 		}
 	}
 	if errors.Is(err, share.ErrClaudeRunning) {

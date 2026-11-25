@@ -308,11 +308,15 @@ func undoStep(j *journal, i int) ([]string, error) {
 
 	if a.Kind == SyncMCP {
 		if s.BackupPath != "" {
-			if err := restoreServers(s.BackupPath, a.Path); err != nil {
-				return nil, err
+			saved, err := restoreServers(s.BackupPath, a.Path)
+			if saved != "" {
+				moved = append(moved, saved)
+			}
+			if err != nil {
+				return moved, err
 			}
 		}
-		return nil, j.record(i, func(s *Step) { s.BackupPath = ""; s.Undone = true })
+		return moved, j.record(i, func(s *Step) { s.BackupPath = ""; s.Undone = true })
 	}
 
 	if s.Created != "" {
@@ -406,16 +410,40 @@ func moveAside(dir, tag, path string) (string, error) {
 
 // restoreServers puts back only the mcpServers key from a backed-up
 // .claude.json, leaving every key Claude Code changed since then alone.
-func restoreServers(backup, file string) error {
+func restoreServers(backup, file string) (string, error) {
 	servers, ok, err := readServers(backup)
-	if err != nil || !ok {
-		return err
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("missing MCP backup %s", backup)
+	}
+	current, ok, err := readServers(file)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("missing MCP configuration %s", file)
+	}
+	if sameServers(current, servers) {
+		return "", nil
 	}
 	info, err := os.Stat(file)
 	if err != nil {
-		return err
+		return "", err
 	}
-	return writeServers(file, servers, info.Mode().Perm())
+	// Older manifests do not record the applied map. Preserve the outgoing
+	// definitions before restoring, including any edits made since apply.
+	snapshot, err := os.CreateTemp(filepath.Dir(backup), filepath.Base(backup)+".before-rollback-*.json")
+	if err != nil {
+		return "", err
+	}
+	writeErr := json.NewEncoder(snapshot).Encode(map[string]any{"mcpServers": current})
+	if err := errors.Join(writeErr, snapshot.Close()); err != nil {
+		os.Remove(snapshot.Name())
+		return "", err
+	}
+	return snapshot.Name(), writeServers(file, servers, info.Mode().Perm())
 }
 
 // throughLink returns the file a symlink points at, so writes keep a

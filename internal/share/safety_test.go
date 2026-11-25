@@ -240,3 +240,35 @@ func TestSyncMCPConvergesWithHTMLChars(t *testing.T) {
 		t.Errorf("value was HTML-escaped on write: %s", b)
 	}
 }
+
+func TestRollbackPreservesMCPServerAddedAfterApply(t *testing.T) {
+	f := richFixture(t)
+	m, err := f.apply(t, share.ApplyOptions{Running: noClaude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const command = "server-installed-after-sharing"
+	testutil.AddAccountDir(t, f.p, f.acct, "b2", "o2", map[string]any{
+		"a": map[string]string{"command": "x"},
+		"b": map[string]string{"command": "y"},
+		"c": map[string]string{"command": command},
+	})
+	moved, err := share.Rollback(f.p, m.ID, share.RollbackOptions{Running: noClaude})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range moved {
+		if !strings.HasPrefix(file, filepath.Join(f.p.BackupsDir(), m.ID)+string(os.PathSeparator)) || filepath.Ext(file) != ".json" {
+			continue
+		}
+		b, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct{ MCPServers map[string]map[string]string }
+		if json.Unmarshal(b, &doc) == nil && doc.MCPServers["c"]["command"] == command {
+			return
+		}
+	}
+	t.Fatal("rollback did not return a recoverable copy of the added MCP server")
+}
