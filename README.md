@@ -99,6 +99,7 @@ hotseat desktop switch work      # only Claude Desktop
 hotseat usage                    # 5-hour and weekly usage, reset times, data age
 hotseat add work                 # new account: config dir + Claude's own login
 hotseat remove work --yes        # sign out, move its files into a backup
+hotseat remove work --forget --yes  # only drop it from Hotseat; its config dir and login stay
 hotseat note work "Work"         # your label for it
 hotseat icon work briefcase.fill # an SF Symbol name or an emoji
 hotseat doctor                   # drift, logins that changed, setup problems

@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,20 +144,70 @@ func TestRemoveAfterReloginProtectsCurrentConfig(t *testing.T) {
 	}
 	dir := filepath.Join(p.Home, ".claude2")
 	testutil.AddAccountDir(t, p, dir, "c3", "o3", nil)
-	if code, _, errText := run(t, "init"); code == 0 || !strings.Contains(errText, "claude2") {
-		t.Errorf("init should report the occupied directory: exit %d, %s", code, errText)
+	// One directory with a changed login must not keep a new account out.
+	testutil.AddAccountDir(t, p, filepath.Join(p.Home, ".claude9"), "d4", "o4", nil)
+	code, _, errText := run(t, "init")
+	if code != 0 || !strings.Contains(errText, "claude2") || !strings.Contains(errText, "different login") {
+		t.Errorf("init should skip the occupied directory with a warning: exit %d, %s", code, errText)
 	}
 	reg, err := account.LoadRegistry(p)
-	if err != nil || len(reg.Accounts) != 2 {
+	if err != nil || len(reg.Accounts) != 3 {
 		t.Errorf("unexpected registry after re-init: %+v, %v", reg.Accounts, err)
 	}
+	if a, ok := reg.Find("claude2"); !ok || a.AccountUUID != "b2" {
+		t.Errorf("claude2 should keep its registered login: %+v", a)
+	}
+	if _, ok := reg.Find("claude9"); !ok {
+		t.Errorf("the new account was not registered: %+v", reg.Accounts)
+	}
 	logouts := stubLogout(t)
-	if code, _, errText := run(t, "remove", "claude2", "--yes"); code == 0 || !strings.Contains(errText, "claude2") {
-		t.Errorf("remove should report the changed login: exit %d, %s", code, errText)
+	if code, _, errText := run(t, "remove", "claude2", "--yes"); code == 0 || !strings.Contains(errText, "claude2") || !strings.Contains(errText, "--forget") {
+		t.Errorf("remove should report the changed login and name the way out: exit %d, %s", code, errText)
 	}
 	id, err := account.ReadIdentity(filepath.Join(dir, ".claude.json"))
 	if len(*logouts) != 0 || err != nil || id.AccountUUID != "c3" {
 		t.Errorf("replacement login disturbed: logouts %v, identity %+v, error %v", *logouts, id, err)
+	}
+}
+
+// --forget is the way out when the registered login is gone for good: the
+// entry leaves the registry, the directory and its new login stay.
+func TestRemoveForgetLeavesConfigDirAlone(t *testing.T) {
+	p := twoAccounts(t)
+	if code, _, errText := run(t, "init"); code != 0 {
+		t.Fatal(errText)
+	}
+	dir := filepath.Join(p.Home, ".claude2")
+	testutil.AddAccountDir(t, p, dir, "c3", "o3", nil)
+	logouts := stubLogout(t)
+	if code, out, _ := run(t, "remove", "claude2", "--forget"); code == 0 || !strings.Contains(out, "left alone") {
+		t.Errorf("without --yes it should only say what it would do: exit %d, %s", code, out)
+	}
+	code, out, errText := run(t, "remove", "claude2", "--forget", "--yes", "--json")
+	if code != 0 {
+		t.Fatalf("forget failed: %s", errText)
+	}
+	var res struct {
+		Removed              string
+		Forgotten, LoggedOut bool
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Removed != "claude2" || !res.Forgotten || res.LoggedOut {
+		t.Errorf("result %q: %+v, %v", out, res, err)
+	}
+	id, err := account.ReadIdentity(filepath.Join(dir, ".claude.json"))
+	if len(*logouts) != 0 || err != nil || id.AccountUUID != "c3" {
+		t.Errorf("directory disturbed: logouts %v, identity %+v, error %v", *logouts, id, err)
+	}
+	if reg, _ := account.LoadRegistry(p); len(reg.Accounts) != 1 {
+		t.Errorf("claude2 still registered: %+v", reg.Accounts)
+	}
+	// The directory's current login can now be registered.
+	if code, _, errText := run(t, "init"); code != 0 || errText != "" {
+		t.Errorf("init after forget: exit %d, %s", code, errText)
+	}
+	reg, _ := account.LoadRegistry(p)
+	if a, ok := reg.Find("claude2"); !ok || a.AccountUUID != "c3" {
+		t.Errorf("new login not registered: %+v", reg.Accounts)
 	}
 }
 

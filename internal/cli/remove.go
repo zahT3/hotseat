@@ -33,12 +33,12 @@ var authLogout = func(dir, shimDir string) error {
 func cmdRemove(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	var pos []string
 	for _, a := range positional(args) {
-		if a != "--yes" {
+		if a != "--yes" && a != "--forget" {
 			pos = append(pos, a)
 		}
 	}
 	if len(pos) != 1 {
-		fmt.Fprintln(stderr, "usage: hotseat remove <account> [--yes]")
+		fmt.Fprintln(stderr, "usage: hotseat remove <account> [--yes] [--forget]")
 		return 1
 	}
 	name := pos[0]
@@ -64,6 +64,18 @@ func cmdRemove(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, fmt.Errorf("Claude Desktop runs as %s; switch Desktop to another account first", name))
 	}
 	_, hasProfile := s.Profiles[name]
+	// --forget only takes the account out of Hotseat: no sign-out, and the
+	// config dir stays where it is. It is the way out when that dir now
+	// holds another login, or is shared with another entry.
+	forget := hasFlag(args, "--forget")
+	if forget && !hasFlag(args, "--yes") {
+		fmt.Fprintf(stdout, "This drops %s from Hotseat and moves its usage record", name)
+		if hasProfile {
+			fmt.Fprint(stdout, " and its Claude Desktop profile")
+		}
+		fmt.Fprintf(stdout, " into a Hotseat backup. %s and its login are left alone. Re-run with --yes to do it.\n", tildePath(p, a.ConfigDir))
+		return 1
+	}
 	if !hasFlag(args, "--yes") {
 		fmt.Fprintf(stdout, "This signs %s out and moves %s", name, tildePath(p, a.ConfigDir))
 		if hasProfile {
@@ -73,25 +85,31 @@ func cmdRemove(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	for _, other := range reg.Accounts {
-		if other.Name != name && account.SameConfigDir(other.ConfigDir, a.ConfigDir) {
-			return fail(stderr, fmt.Errorf("cannot remove %s: %s also uses its config directory", name, other.Name))
+	if !forget {
+		wayOut := fmt.Sprintf("to drop %s from Hotseat and leave the directory alone: hotseat remove %s --forget --yes", name, name)
+		for _, other := range reg.Accounts {
+			if other.Name != name && account.SameConfigDir(other.ConfigDir, a.ConfigDir) {
+				return fail(stderr, fmt.Errorf("cannot remove %s: %s also uses its config directory; %s", name, other.Name, wayOut))
+			}
 		}
-	}
-	id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
-	if err != nil && !errors.Is(err, account.ErrNoIdentity) {
-		return fail(stderr, err)
-	}
-	if err == nil && id.AccountUUID != a.AccountUUID {
-		return fail(stderr, fmt.Errorf("cannot remove %s: its config directory now has a different login", name))
+		id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
+		if err != nil && !errors.Is(err, account.ErrNoIdentity) {
+			return fail(stderr, err)
+		}
+		if err == nil && id.AccountUUID != a.AccountUUID {
+			return fail(stderr, fmt.Errorf("cannot remove %s: its config directory now has a different login; %s", name, wayOut))
+		}
 	}
 	backup := filepath.Join(p.BackupsDir(), "remove-"+name+"-"+time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(backup, 0o700); err != nil {
 		return fail(stderr, err)
 	}
-	loggedOut := authLogout(a.ConfigDir, p.ShimDir()) == nil
-	if err := moveIfExists(a.ConfigDir, filepath.Join(backup, "config")); err != nil {
-		return fail(stderr, err)
+	loggedOut := false
+	if !forget {
+		loggedOut = authLogout(a.ConfigDir, p.ShimDir()) == nil
+		if err := moveIfExists(a.ConfigDir, filepath.Join(backup, "config")); err != nil {
+			return fail(stderr, err)
+		}
 	}
 	if hasProfile {
 		if err := moveIfExists(p.DesktopProfileDir(name), filepath.Join(backup, "desktop")); err != nil {
@@ -116,7 +134,13 @@ func cmdRemove(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, err)
 	}
 	if hasFlag(args, "--json") {
-		return writeJSON(stdout, stderr, map[string]any{"removed": name, "backup": backup, "loggedOut": loggedOut})
+		return writeJSON(stdout, stderr, map[string]any{"removed": name, "backup": backup, "loggedOut": loggedOut, "forgotten": forget})
+	}
+	if forget {
+		fmt.Fprintf(stdout, "dropped %s from Hotseat; %s and its login were left alone\n", name, tildePath(p, a.ConfigDir))
+		fmt.Fprintf(stdout, "its usage record and Desktop profile, if any, are in %s\n", tildePath(p, backup))
+		fmt.Fprintln(stdout, "run hotseat init to register the login that directory has now")
+		return 0
 	}
 	fmt.Fprintf(stdout, "removed %s; its files are in %s\n", name, tildePath(p, backup))
 	if !loggedOut {

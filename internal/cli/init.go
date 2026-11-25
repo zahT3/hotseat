@@ -17,9 +17,9 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	reg, err = mergeDiscovered(reg, found)
-	if err != nil {
-		return fail(stderr, err)
+	reg, skipped := mergeDiscovered(reg, found)
+	for _, w := range skipped {
+		fmt.Fprintln(stderr, "hotseat: "+w)
 	}
 	if err := account.SaveRegistry(p, reg); err != nil {
 		return fail(stderr, err)
@@ -48,16 +48,25 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 // mergeDiscovered keeps existing entries (and the names the user gave them)
 // and appends newly found logins. Entries whose dir disappeared are kept so
 // doctor can report them instead of silently forgetting an account.
-func mergeDiscovered(reg account.Registry, found []account.Account) (account.Registry, error) {
+//
+// A directory registered to one account but now logged in to another is
+// left out, with a warning: registering it again would give two names to
+// one directory, and it must not keep the other logins from registering.
+func mergeDiscovered(reg account.Registry, found []account.Account) (account.Registry, []string) {
+	var skipped []string
 	for _, f := range found {
-		idx := -1
+		idx, taken := -1, ""
 		for i, a := range reg.Accounts {
 			if a.AccountUUID != f.AccountUUID && account.SameConfigDir(a.ConfigDir, f.ConfigDir) {
-				return account.Registry{}, fmt.Errorf("%s is registered to %s but now has a different login; restore the original login or use a separate config directory", f.ConfigDir, a.Name)
+				taken = a.Name
 			}
 			if a.AccountUUID == f.AccountUUID {
 				idx = i
 			}
+		}
+		if taken != "" {
+			skipped = append(skipped, changedLoginWarning(reg, taken, f.ConfigDir))
+			continue
 		}
 		if idx >= 0 {
 			kept := reg.Accounts[idx]
@@ -68,7 +77,15 @@ func mergeDiscovered(reg account.Registry, found []account.Account) (account.Reg
 		f.Name = uniqueName(reg, f.Name)
 		reg.Accounts = append(reg.Accounts, f)
 	}
-	return reg, nil
+	return reg, skipped
+}
+
+func changedLoginWarning(reg account.Registry, name, dir string) string {
+	msg := fmt.Sprintf("skipped %s: it is registered to %s but now has a different login; log back in to %s there", dir, name, name)
+	if a, ok := reg.Find(name); ok && !a.IsDefault {
+		msg += fmt.Sprintf(", or drop %s from Hotseat with: hotseat remove %s --forget --yes", name, name)
+	}
+	return msg
 }
 
 func uniqueName(reg account.Registry, name string) string {

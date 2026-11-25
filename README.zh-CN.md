@@ -101,6 +101,7 @@ hotseat desktop switch work      # 只切 Claude Desktop
 hotseat usage                    # 5 小时和每周用量、重置时间、数据新旧
 hotseat add work                 # 新账号：建配置目录，走 Claude 自己的登录
 hotseat remove work --yes        # 退出登录，把它的文件移进备份
+hotseat remove work --forget --yes  # 只从 Hotseat 里去掉它，配置目录和登录不动
 hotseat note work "Work"         # 给它起个备注
 hotseat icon work briefcase.fill # SF Symbol 名称或一个 emoji
 hotseat doctor                   # 检查偏差、变动过的登录和安装问题
