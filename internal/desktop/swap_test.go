@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zahT3/hotseat/internal/desktop"
 	"github.com/zahT3/hotseat/internal/paths"
@@ -109,5 +110,44 @@ func TestSwapRefusesWithPendingJournal(t *testing.T) {
 	testutil.WriteFile(t, p.DesktopJournal(), `{"from":"a","to":"b","step":"parked"}`)
 	if err := desktop.Swap(p, "a", "b"); err == nil || !strings.Contains(err.Error(), "recover") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+type creatingDesktopDriver struct {
+	*fakeDriver
+	activeDir string
+}
+
+func (d *creatingDesktopDriver) Launch() error {
+	// Desktop can create its application-support directory at startup.
+	return os.MkdirAll(d.activeDir, 0o700)
+}
+
+func TestSwitchActivationFailureRemainsRecoverable(t *testing.T) {
+	p, reg := switchSetup(t)
+	injected := errors.New("cannot activate target")
+	desktop.SetBeforeSwapStep(t, func(step string) error {
+		if step == "activate" {
+			return injected
+		}
+		return nil
+	})
+	d := &creatingDesktopDriver{&fakeDriver{procs: claudeApp, stopsOn: 1}, p.DesktopDataDir()}
+	_, err := desktop.Switch(p, reg, d, "claude2", desktop.SwitchOptions{Timeout: time.Second})
+	if !errors.Is(err, injected) {
+		t.Fatalf("expected activation error, got %v", err)
+	}
+	desktop.SetBeforeSwapStep(t, nil)
+	if _, err := desktop.Recover(p); err != nil {
+		t.Fatalf("automatic recovery failed after Desktop was quit: %v", err)
+	}
+	s, err := desktop.LoadState(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"claude": "a1", "claude2": "b2"} {
+		if id := acctOf(t, desktop.ProfileDir(p, s, name)); id != want {
+			t.Errorf("recovered %s has identity %q, want %q", name, id, want)
+		}
 	}
 }

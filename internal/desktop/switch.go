@@ -56,8 +56,8 @@ func CurrentSession(dataDir, acct, org string) (string, bool) {
 
 // Switch makes `to` the account Claude Desktop runs as: quit Desktop, carry
 // the session list and settings over, swap the data dirs, reopen (with the
-// given session when Resume is set). If anything fails after Desktop was
-// quit, Desktop is reopened on the account it had.
+// given session when Resume is set). An interrupted swap leaves Desktop
+// closed until recovery establishes which directory is active.
 func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts SwitchOptions) (res SwitchResult, err error) {
 	unlock, err := Lock(p)
 	if err != nil {
@@ -112,7 +112,13 @@ func Switch(p paths.Paths, reg account.Registry, d Driver, to string, opts Switc
 	}
 	defer func() {
 		if err != nil && wasRunning {
-			_ = d.Launch()
+			if _, journalErr := os.Lstat(p.DesktopJournal()); !errors.Is(journalErr, os.ErrNotExist) {
+				err = fmt.Errorf("%w; Desktop was left closed: run hotseat desktop recover", err)
+				return
+			}
+			if dirExists(p.DesktopDataDir()) {
+				err = errors.Join(err, d.Launch())
+			}
 		}
 	}()
 	if err := checkIdentity(p, &s, from); err != nil {
