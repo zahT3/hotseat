@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,5 +214,36 @@ func TestDesktopStatusShowsRunningAndPendingJournal(t *testing.T) {
 	_, out, _ := run(t, "desktop", "status")
 	if !strings.Contains(out, "running") || !strings.Contains(out, "hotseat desktop recover") {
 		t.Errorf("out %q", out)
+	}
+}
+
+func TestDesktopSetupCommandsReturnJSON(t *testing.T) {
+	for _, subcommand := range []string{"adopt", "adopt-directory", "add"} {
+		t.Run(subcommand, func(t *testing.T) {
+			defer cli.SetDesktopDriver(&fakeDesktop{})()
+			args := []string{"desktop", subcommand}
+			if subcommand == "adopt" {
+				p := twoAccounts(t)
+				if code, _, errText := run(t, "init"); code != 0 {
+					t.Fatal(errText)
+				}
+				writeDesktopDir(t, p.DesktopDataDir(), "a1")
+			} else if subcommand == "adopt-directory" {
+				desktopSetup(t)
+				dir := t.TempDir()
+				writeDesktopDir(t, dir, "b2")
+				args = []string{"desktop", "adopt", "claude2", dir}
+			} else {
+				desktopSetup(t)
+				args = append(args, "claude2", "--yes")
+			}
+			code, out, errText := run(t, append(args, "--json")...)
+			if code != 0 {
+				t.Fatalf("%s failed: %s", subcommand, errText)
+			}
+			if !json.Valid([]byte(out)) {
+				t.Errorf("successful %s --json returned plain text: %q", subcommand, out)
+			}
+		})
 	}
 }

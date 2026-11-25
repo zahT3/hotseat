@@ -27,11 +27,11 @@ func cmdDesktop(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	case "status":
 		return cmdDesktopStatus(p, args, stdout, stderr)
 	case "adopt":
-		return cmdDesktopAdopt(p, pos[1:], stdout, stderr)
+		return cmdDesktopAdopt(p, pos[1:], hasFlag(args, "--json"), stdout, stderr)
 	case "switch":
 		return cmdDesktopSwitch(p, args[1:], stdout, stderr)
 	case "add":
-		return cmdDesktopAdd(p, pos[1:], hasFlag(args, "--yes"), stdout, stderr)
+		return cmdDesktopAdd(p, pos[1:], hasFlag(args, "--yes"), hasFlag(args, "--json"), stdout, stderr)
 	case "recover":
 		unlock, err := desktop.Lock(p)
 		if err != nil {
@@ -176,7 +176,7 @@ func accountByUUID(reg account.Registry, uuid string) (account.Account, bool) {
 // cmdDesktopAdopt starts managing Desktop data that already exists: with no
 // arguments the data at the real path, or `<account> <dir>` to park a data
 // dir that was logged in elsewhere (e.g. with --user-data-dir).
-func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int {
+func cmdDesktopAdopt(p paths.Paths, args []string, jsonOut bool, stdout, stderr io.Writer) int {
 	unlock, err := desktop.Lock(p)
 	if err != nil {
 		return fail(stderr, err)
@@ -208,8 +208,8 @@ func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int
 		if err := desktop.SaveState(p, s); err != nil {
 			return fail(stderr, err)
 		}
-		fmt.Fprintf(stdout, "Claude Desktop data at %s is now managed as %s\n", tildePath(p, p.DesktopDataDir()), a.Name)
-		return 0
+		return report(stdout, stderr, jsonOut, map[string]string{"account": a.Name, "dir": p.DesktopDataDir()},
+			fmt.Sprintf("Claude Desktop data at %s is now managed as %s", tildePath(p, p.DesktopDataDir()), a.Name))
 	case 2:
 		name, dir := args[0], args[1]
 		a, ok := reg.Find(name)
@@ -243,8 +243,8 @@ func cmdDesktopAdopt(p paths.Paths, args []string, stdout, stderr io.Writer) int
 		if err := desktop.SaveState(p, s); err != nil {
 			return fail(stderr, err)
 		}
-		fmt.Fprintf(stdout, "moved %s to %s; it is %s's Desktop data now\n", dir, tildePath(p, target), name)
-		return 0
+		return report(stdout, stderr, jsonOut, map[string]string{"account": name, "dir": target},
+			fmt.Sprintf("moved %s to %s; it is %s's Desktop data now", dir, tildePath(p, target), name))
 	default:
 		fmt.Fprintln(stderr, "usage: hotseat desktop adopt [<account> <data-dir>]")
 		return 1
@@ -301,7 +301,7 @@ func switchDesktop(p paths.Paths, to, resume string, jsonOut bool, stdout, stder
 	return 0
 }
 
-func cmdDesktopAdd(p paths.Paths, args []string, yes bool, stdout, stderr io.Writer) int {
+func cmdDesktopAdd(p paths.Paths, args []string, yes, jsonOut bool, stdout, stderr io.Writer) int {
 	var pos []string
 	for _, a := range args {
 		if a != "--yes" {
@@ -331,6 +331,6 @@ func cmdDesktopAdd(p paths.Paths, args []string, yes bool, stdout, stderr io.Wri
 	if rc := switchDesktop(p, args[0], "", false, io.Discard, stderr); rc != 0 {
 		return rc
 	}
-	fmt.Fprintf(stdout, "Claude Desktop opened with an empty profile for %s: log in to that account once; Hotseat checks it on the next switch\n", args[0])
-	return 0
+	return report(stdout, stderr, jsonOut, map[string]any{"account": args[0], "needsLogin": true},
+		fmt.Sprintf("Claude Desktop opened with an empty profile for %s: log in to that account once; Hotseat checks it on the next switch", args[0]))
 }
