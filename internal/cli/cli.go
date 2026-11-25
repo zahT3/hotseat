@@ -8,7 +8,7 @@ import (
 	"github.com/zahT3/hotseat/internal/paths"
 )
 
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 type command func(p paths.Paths, args []string, stdout, stderr io.Writer) int
 
