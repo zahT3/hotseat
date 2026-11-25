@@ -39,3 +39,8 @@ func canonical(dir string) string {
 	}
 	return dir
 }
+
+// SameConfigDir also recognizes shell aliases that use a symlink to the profile.
+func SameConfigDir(a, b string) bool {
+	return canonical(a) == canonical(b)
+}

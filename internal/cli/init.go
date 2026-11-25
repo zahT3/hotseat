@@ -17,7 +17,10 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return fail(stderr, err)
 	}
-	reg = mergeDiscovered(reg, found)
+	reg, err = mergeDiscovered(reg, found)
+	if err != nil {
+		return fail(stderr, err)
+	}
 	if err := account.SaveRegistry(p, reg); err != nil {
 		return fail(stderr, err)
 	}
@@ -45,13 +48,15 @@ func cmdInit(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 // mergeDiscovered keeps existing entries (and the names the user gave them)
 // and appends newly found logins. Entries whose dir disappeared are kept so
 // doctor can report them instead of silently forgetting an account.
-func mergeDiscovered(reg account.Registry, found []account.Account) account.Registry {
+func mergeDiscovered(reg account.Registry, found []account.Account) (account.Registry, error) {
 	for _, f := range found {
 		idx := -1
 		for i, a := range reg.Accounts {
+			if a.AccountUUID != f.AccountUUID && account.SameConfigDir(a.ConfigDir, f.ConfigDir) {
+				return account.Registry{}, fmt.Errorf("%s is registered to %s but now has a different login; restore the original login or use a separate config directory", f.ConfigDir, a.Name)
+			}
 			if a.AccountUUID == f.AccountUUID {
 				idx = i
-				break
 			}
 		}
 		if idx >= 0 {
@@ -63,7 +68,7 @@ func mergeDiscovered(reg account.Registry, found []account.Account) account.Regi
 		f.Name = uniqueName(reg, f.Name)
 		reg.Accounts = append(reg.Accounts, f)
 	}
-	return reg
+	return reg, nil
 }
 
 func uniqueName(reg account.Registry, name string) string {

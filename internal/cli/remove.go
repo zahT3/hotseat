@@ -73,6 +73,18 @@ func cmdRemove(p paths.Paths, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	for _, other := range reg.Accounts {
+		if other.Name != name && account.SameConfigDir(other.ConfigDir, a.ConfigDir) {
+			return fail(stderr, fmt.Errorf("cannot remove %s: %s also uses its config directory", name, other.Name))
+		}
+	}
+	id, err := account.ReadIdentity(account.ClaudeJSONPath(p, a))
+	if err != nil && !errors.Is(err, account.ErrNoIdentity) {
+		return fail(stderr, err)
+	}
+	if err == nil && id.AccountUUID != a.AccountUUID {
+		return fail(stderr, fmt.Errorf("cannot remove %s: its config directory now has a different login", name))
+	}
 	backup := filepath.Join(p.BackupsDir(), "remove-"+name+"-"+time.Now().Format("20060102-150405"))
 	if err := os.MkdirAll(backup, 0o700); err != nil {
 		return fail(stderr, err)

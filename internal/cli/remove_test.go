@@ -135,3 +135,51 @@ func TestPanelFlagsLoginProblems(t *testing.T) {
 		t.Errorf("claude3: %q", v.Accounts[2].LoginProblem)
 	}
 }
+
+func TestRemoveAfterReloginProtectsCurrentConfig(t *testing.T) {
+	p := twoAccounts(t)
+	if code, _, errText := run(t, "init"); code != 0 {
+		t.Fatal(errText)
+	}
+	dir := filepath.Join(p.Home, ".claude2")
+	testutil.AddAccountDir(t, p, dir, "c3", "o3", nil)
+	if code, _, errText := run(t, "init"); code == 0 || !strings.Contains(errText, "claude2") {
+		t.Errorf("init should report the occupied directory: exit %d, %s", code, errText)
+	}
+	reg, err := account.LoadRegistry(p)
+	if err != nil || len(reg.Accounts) != 2 {
+		t.Errorf("unexpected registry after re-init: %+v, %v", reg.Accounts, err)
+	}
+	logouts := stubLogout(t)
+	if code, _, errText := run(t, "remove", "claude2", "--yes"); code == 0 || !strings.Contains(errText, "claude2") {
+		t.Errorf("remove should report the changed login: exit %d, %s", code, errText)
+	}
+	id, err := account.ReadIdentity(filepath.Join(dir, ".claude.json"))
+	if len(*logouts) != 0 || err != nil || id.AccountUUID != "c3" {
+		t.Errorf("replacement login disturbed: logouts %v, identity %+v, error %v", *logouts, id, err)
+	}
+}
+
+func TestRemoveRefusesPreviouslyRegisteredAlias(t *testing.T) {
+	p := twoAccounts(t)
+	if code, _, errText := run(t, "init"); code != 0 {
+		t.Fatal(errText)
+	}
+	reg, err := account.LoadRegistry(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias, ok := reg.Find("claude2")
+	if !ok {
+		t.Fatal("missing test account")
+	}
+	alias.Name = "old-name"
+	reg.Accounts = append(reg.Accounts, alias)
+	if err := account.SaveRegistry(p, reg); err != nil {
+		t.Fatal(err)
+	}
+	logouts := stubLogout(t)
+	if code, _, _ := run(t, "remove", alias.Name, "--yes"); code == 0 || len(*logouts) != 0 {
+		t.Fatalf("removed shared directory: exit %d, logouts %v", code, *logouts)
+	}
+}
