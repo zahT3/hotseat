@@ -49,10 +49,22 @@ func (pl Plan) Conflicts() int {
 	return n
 }
 
+// Work files always live in CoreDir. Only registered logins participate in
+// MCP sync; if all logins use dedicated dirs, registration order breaks ties.
+func preferredMCPAccount(reg account.Registry) (account.Account, error) {
+	if a, ok := reg.Default(); ok {
+		return a, nil
+	}
+	if len(reg.Accounts) == 0 {
+		return account.Account{}, errors.New("no accounts registered; run `hotseat init`")
+	}
+	return reg.Accounts[0], nil
+}
+
 func MakePlan(p paths.Paths, reg account.Registry, c Classifier) (Plan, error) {
-	def, ok := reg.Default()
-	if !ok {
-		return Plan{}, errors.New("no default account (~/.claude) registered; run `hotseat init`")
+	def, err := preferredMCPAccount(reg)
+	if err != nil {
+		return Plan{}, err
 	}
 	pl := Plan{Actions: []Action{}}
 	items := c.SharedNames()

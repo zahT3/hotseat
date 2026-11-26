@@ -219,9 +219,9 @@ func mergeJSONLStep(j *journal, idx, i int) error {
 }
 
 func syncMCP(p paths.Paths, reg account.Registry, j *journal, i int) error {
-	def, ok := reg.Default()
-	if !ok {
-		return errors.New("no default account registered")
+	def, err := preferredMCPAccount(reg)
+	if err != nil {
+		return err
 	}
 	var files []string
 	for _, a := range reg.Accounts {

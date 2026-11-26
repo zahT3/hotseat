@@ -16,6 +16,40 @@ import (
 
 func noClaude() ([]int, error) { return nil, nil }
 
+func TestShareWithOnlyDedicatedLoginDirs(t *testing.T) {
+	f := newFixture(t)
+	first := &f.reg.Accounts[0]
+	first.ConfigDir = filepath.Join(f.p.Home, ".claude4")
+	first.IsDefault = false
+	testutil.AddAccountDir(t, f.p, first.ConfigDir, "a1", "o1", map[string]any{"common": "first"})
+	testutil.AddAccountDir(t, f.p, f.acct, "b2", "o2", map[string]any{"common": "second", "extra": "other"})
+	testutil.AddAccountDir(t, f.p, f.p.CoreDir(), "b2", "o2", map[string]any{"outside": "ignore"})
+	before := readForSnap(f.p.DefaultClaudeJSON())
+	mkdir(t, f.core("skills"))
+	if _, err := f.apply(t, share.ApplyOptions{Running: noClaude}); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range f.reg.Accounts {
+		if !isLinkTo(t, filepath.Join(a.ConfigDir, "skills"), f.core("skills")) {
+			t.Errorf("%s does not share skills", a.Name)
+		}
+		body, err := os.ReadFile(filepath.Join(a.ConfigDir, ".claude.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct{ MCPServers map[string]string }
+		if err := json.Unmarshal(body, &doc); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(doc.MCPServers, map[string]string{"common": "first", "extra": "other"}) {
+			t.Errorf("%s MCP servers = %v", a.Name, doc.MCPServers)
+		}
+	}
+	if readForSnap(f.p.DefaultClaudeJSON()) != before {
+		t.Error("changed unregistered default login")
+	}
+}
+
 // snapshot records every file's bytes, every symlink's target and every dir
 // under the two config dirs, plus both .claude.json files.
 func snapshot(t *testing.T, f fixture) map[string]string {

@@ -72,6 +72,36 @@ func TestInitKeepsRenamedAccount(t *testing.T) {
 	}
 }
 
+func TestInitKeepsDedicatedDirWhenLoginAlsoAppearsAtDefault(t *testing.T) {
+	p := twoAccounts(t)
+	if code, _, stderr := run(t, "init"); code != 0 {
+		t.Fatal(stderr)
+	}
+	reg, err := account.LoadRegistry(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slot := filepath.Join(p.Home, ".claude4")
+	reg.Accounts[0].IsDefault = false
+	reg.Accounts[0].ConfigDir = slot
+	if err := account.SaveRegistry(p, reg); err != nil {
+		t.Fatal(err)
+	}
+	// The dedicated login needs renewal, while the default copy still reports its ID.
+	testutil.AddAccountDir(t, p, slot, "", "", nil)
+	if code, _, stderr := run(t, "init"); code != 0 {
+		t.Fatal(stderr)
+	}
+	got, err := account.LoadRegistry(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := got.Find("claude")
+	if !ok || a.IsDefault || a.ConfigDir != slot || len(got.Accounts) != 2 {
+		t.Fatalf("dedicated account was rebound: %+v", got.Accounts)
+	}
+}
+
 func TestUseUnknownAccountFails(t *testing.T) {
 	twoAccounts(t)
 	run(t, "init")

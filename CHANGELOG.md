@@ -6,6 +6,7 @@
 - `hotseat desktop switch --resume` refuses a session ID that is not a UUID before anything is quit or moved.
 - When a Desktop switch succeeds but Desktop cannot be reopened, Hotseat says so instead of reporting a plain failure or success.
 - A limit on one model ("You've hit your Fable limit …") is recorded as a limit on that model, not on the account: the account is no longer shown as LIMIT or skipped as a handoff target while its other models still work. `hotseat usage` and the account's card show "Fable limit until …", and a handoff away from a model limit skips accounts limited on the same model. A limit named after the plan ("Max plan", "Pro") stays an account-wide limit, and a model name with a version ("Opus 5.5") is read whole. The handoff dialog and notice name the model too ("hit its Fable limit").
+- Hotseat no longer needs an account that lives in `~/.claude`. When every login has its own config dir and `~/.claude` is only the shared workspace, `hotseat share plan`, `share apply` and `doctor` work instead of failing with "no default account"; MCP conflicts are then settled by the first registered account. `hotseat init` no longer moves an account back to `~/.claude` because an old login of the same account is still recorded there.
 
 ## 0.1.1
 

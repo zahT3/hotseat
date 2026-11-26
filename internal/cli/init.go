@@ -70,6 +70,11 @@ func mergeDiscovered(reg account.Registry, found []account.Account) (account.Reg
 		}
 		if idx >= 0 {
 			kept := reg.Accounts[idx]
+			// A stale identity in the shared workspace must not take over a
+			// dedicated login, even while the latter is signed out.
+			if f.IsDefault && !kept.IsDefault && dirExists(kept.ConfigDir) {
+				continue
+			}
 			reg.Accounts[idx] = f
 			reg.Accounts[idx].Name, reg.Accounts[idx].Note, reg.Accounts[idx].Icon = kept.Name, kept.Note, kept.Icon
 			continue
