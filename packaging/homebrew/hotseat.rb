@@ -5,8 +5,8 @@
 class Hotseat < Formula
   desc "Claude account switcher for macOS: switch accounts, keep your place"
   homepage "https://github.com/zahT3/hotseat"
-  url "https://github.com/zahT3/hotseat/archive/refs/tags/v0.1.1.tar.gz"
-  sha256 "4e8cba158d19dd9eb1af5035ec5ff47090f3f28e6258a699fd37e0cd7785beb7"
+  url "https://github.com/zahT3/hotseat/archive/refs/tags/v0.1.2.tar.gz"
+  sha256 "fca6d2c56ba9585acaaa76aaade6a22b3e1dd4f5015e089ecf8255d1910c7c7a"
   license "MIT"
 
   depends_on "go" => :build
