@@ -1,0 +1,1046 @@
+#!/usr/bin/python3 -I
+"""hotseat-indicator: Hotseat's menu bar app for Linux (GNOME on X11).
+
+A port of macos/Sources/Hotseat (AppDelegate, AccountCard, SettingsView,
+SetupView): a top-bar icon whose menu has one card per account, plus
+Settings…, Setup…, Refresh and Quit; a Settings window (Accounts, General)
+and a Setup window with the same steps and wording as the Mac app.
+
+Like the Mac app it only displays and clicks: everything is read from
+`hotseat panel --json` / `hotseat setup status --json`, and every action
+runs the `hotseat` CLI. It makes no network requests and reads none of
+Claude's files.
+
+Needs only GTK 3 and PyGObject (stock on Ubuntu). The icon is a legacy tray
+icon (Gtk.StatusIcon), which Ubuntu's AppIndicator extension shows in the
+top bar on X11 sessions.
+
+Differences from the Mac app, all forced by the platform: no text beside the
+icon (a tray icon is a square image; the tooltip carries it), shortcuts are
+Ctrl+key while the menu is open, account icons are emoji instead of SF
+Symbols, and there is no bundled CLI to install (Setup's first step only
+checks ~/.local/bin/hotseat).
+
+SIGUSR1 toggles the menu (to open it from a script or over SSH).
+"""
+import json
+import math
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("PangoCairo", "1.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
+
+import cairo  # noqa: E402
+
+# python3 -I leaves the script's directory off sys.path.
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from hotseat_format import (  # noqa: E402
+    ICON_CHOICES, autostart_entry, avatar_text, bad_output, display_name, error_text, fmt_age, fmt_limit,
+    fmt_model_limit, fmt_value, guarded, is_limited, is_model_limited, observed_at, parse_object, removal_problem,
+    run_cli, setup_steps, tilde, valid_name, win_percent, windows)
+
+HOME = os.path.expanduser("~")
+# HOTSEAT_PATH points the app at another CLI, e.g. macos/demo/hotseat-demo.
+HOTSEAT = os.environ.get("HOTSEAT_PATH") or os.path.join(HOME, ".local", "bin", "hotseat")
+SELF = os.path.realpath(__file__)
+PREFS = os.path.join(HOME, ".config", "hotseat-indicator", "prefs.json")
+AUTOSTART = os.path.join(HOME, ".config", "autostart", "hotseat-indicator.desktop")
+REFRESH_SECONDS = 60
+CARD_WIDTH = 380
+
+CSS = b"""
+.hs-panel { border: 1px solid alpha(@theme_fg_color, 0.25); }
+.hs-card { padding: 9px 14px; }
+.hs-card-current { background-color: alpha(@theme_selected_bg_color, 0.14); }
+.hs-name { font-weight: bold; font-size: 14px; }
+.hs-dim { opacity: 0.65; font-size: 11px; }
+.hs-secondary { opacity: 0.65; }
+.hs-meter-label { opacity: 0.65; font-size: 12px; }
+.hs-value { font-size: 12px; font-feature-settings: "tnum"; }
+.hs-warn { color: #e01b24; font-size: 12px; }
+.hs-orange { color: #e5a50a; font-size: 12px; }
+.hs-avatar { border-radius: 999px; background-color: @theme_selected_bg_color;
+             color: @theme_selected_fg_color; font-weight: bold; }
+.hs-avatar-idle { background-color: alpha(@theme_fg_color, 0.18); color: @theme_fg_color; }
+.hs-headbtn { padding: 2px 4px; }
+.hs-badge { border-radius: 4px; padding: 1px 6px; font-size: 10px; font-weight: bold;
+            background-color: alpha(@theme_fg_color, 0.12); }
+.hs-badge-accent { background-color: @theme_selected_bg_color; color: @theme_selected_fg_color; }
+.hs-row { background-color: alpha(@theme_fg_color, 0.05); border-radius: 10px; padding: 12px; }
+.hs-step { background-color: alpha(@theme_fg_color, 0.04); border-radius: 8px; padding: 10px; }
+.hs-title { font-size: 20px; font-weight: 600; }
+.hs-step-title { font-size: 13px; font-weight: 600; }
+.hs-done { color: #26a269; font-size: 18px; }
+.hs-todo { opacity: 0.5; font-size: 18px; }
+.hs-menuitem { padding: 5px 14px; }
+progressbar trough, progressbar progress { min-height: 5px; border-radius: 3px; }
+progressbar.hs-full progress { background-color: #e01b24; }
+progressbar.hs-high progress { background-color: #e5a50a; }
+"""
+
+
+# ---------- the hotseat CLI (HotseatKit/CLI.swift) ----------
+
+def run_raw(args, timeout):
+    """(status, stdout, stderr) from the hotseat CLI; status None when it did
+    not run to an exit code. Never raises (see hotseat_format.run_cli)."""
+    return run_cli(HOTSEAT, args, timeout)
+
+
+def load_prefs():
+    try:
+        with open(PREFS) as f:
+            prefs = json.load(f)
+        return prefs if isinstance(prefs, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_prefs(prefs):
+    os.makedirs(os.path.dirname(PREFS), mode=0o700, exist_ok=True)
+    with open(PREFS, "w") as f:
+        json.dump(prefs, f, indent=1)
+
+
+def label(text, css=None, wrap=False, xalign=0.0, selectable=False, chars=0):
+    l = Gtk.Label(label=text)
+    l.set_xalign(xalign)
+    for c in (css or "").split():
+        l.get_style_context().add_class(c)
+    if wrap:
+        l.set_line_wrap(True)
+        l.set_max_width_chars(chars or 46)
+    else:
+        l.set_ellipsize(Pango.EllipsizeMode.MIDDLE if selectable else Pango.EllipsizeMode.END)
+    l.set_selectable(selectable)
+    return l
+
+
+def avatar(a, size, accent):
+    l = Gtk.Label(label=avatar_text(a))
+    ctx = l.get_style_context()
+    ctx.add_class("hs-avatar")
+    if not accent:
+        ctx.add_class("hs-avatar-idle")
+    l.set_size_request(size, size)
+    l.set_valign(Gtk.Align.CENTER)
+    l.set_halign(Gtk.Align.CENTER)
+    return l
+
+
+def badge(text, accent=False):
+    l = Gtk.Label(label=text)
+    l.get_style_context().add_class("hs-badge")
+    if accent:
+        l.get_style_context().add_class("hs-badge-accent")
+    l.set_valign(Gtk.Align.CENTER)
+    return l
+
+
+class Indicator(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="local.hotseat.indicator", flags=Gio.ApplicationFlags.FLAGS_NONE)
+        self.snapshot = None
+        self.error = None
+        self.switching = None      # the account being switched to
+        self.menu = None           # the card panel window
+        self.hidden_at = 0.0
+        self.icon = None
+        self.settings = None
+        self.settings_tab = 0
+        self.note_drafts = {}
+        self.setup = None
+        self.setup_status = None
+        self.setup_version = None
+        self.setup_running = None
+        self.setup_errors = {}
+        self.setup_load_error = None
+        self.prefs = load_prefs()
+        self.cli_version = None
+
+    # ----- lifecycle -----
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.icon = Gtk.StatusIcon()
+        self.icon.set_title("Hotseat")
+        self.icon.connect("activate", lambda *_: self.toggle_menu())
+        self.icon.connect("popup-menu", self.on_context_menu)
+        self.icon.connect("size-changed", lambda *_: self.render_icon() or True)
+        self.render_icon()
+        self.icon.set_visible(True)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1, lambda: self.toggle_menu() or True)
+        GLib.timeout_add_seconds(REFRESH_SECONDS, lambda: self.refresh() or True)
+        self.refresh()
+        self.reload_setup(self.open_setup_if_needed)
+        self.hold()
+
+    def do_activate(self):
+        pass  # a second launch just finds this one running
+
+    def background(self, work, done, on_error=None):
+        """Runs work() off the main thread, then done(result) on it. If work
+        raises, done gets on_error(exception) instead, by default a CLI-style
+        (None, "", message) result: done must always run, or a switch would
+        stay "in progress" until the app restarts."""
+        if on_error is None:
+            on_error = lambda e: (None, "", "Hotseat menu: %s" % e)  # noqa: E731
+
+        def run():
+            result = guarded(work, on_error)
+            GLib.idle_add(lambda: done(result) and False)
+        threading.Thread(target=run, daemon=True).start()
+
+    # ----- data -----
+
+    def refresh(self):
+        def done(result):
+            status, out, err = result
+            if status == 0:
+                snap = parse_object(out)
+                if snap is None:
+                    self.error = bad_output(out)
+                else:
+                    self.snapshot, self.error = snap, None
+            else:
+                self.error = error_text(status, err)
+            self.render()
+        self.background(lambda: run_raw(["panel", "--json"], 30), done)
+
+    def render(self):
+        self.render_icon()
+        if self.menu and self.menu.get_visible():
+            self.fill_menu()
+        if self.settings:
+            self.fill_settings()
+
+    def account(self, name):
+        return next((a for a in (self.snapshot or {}).get("accounts", []) if a["account"] == name), None)
+
+    def label_of(self, name):
+        a = self.account(name)
+        return display_name(a) if a else name
+
+    @property
+    def ask_before_restart(self):
+        return not self.prefs.get("skipDesktopConfirm", False)
+
+    # ----- top-bar icon (renderStatusButton) -----
+
+    def render_icon(self):
+        size = max(16, self.icon.get_size() or 24) * 2  # 2x for HiDPI
+        now = int(time.time())
+        snap = self.snapshot
+        a = self.account(snap.get("current")) if snap else None
+        text, color, tip = "H", (0.21, 0.52, 0.89), "Hotseat"
+        if self.switching:
+            text, tip = "…", "Hotseat: switching to " + self.label_of(self.switching)
+        elif a:
+            text = avatar_text(a)
+            top = max([win_percent(w, now) for w in windows(a)] or [0])
+            if is_limited(a, now) or top >= 100:
+                color = (0.88, 0.11, 0.14)
+            elif top >= 80:
+                color = (0.90, 0.65, 0.04)
+            parts = [display_name(a)]
+            for key, lab in (("fiveHour", "5h"), ("sevenDay", "7d")):
+                w = a.get(key)
+                if w:
+                    parts.append("%s %.0f%%" % (lab, win_percent(w, now)))
+            if is_limited(a, now):
+                parts.append(fmt_limit(a.get("limit"), now))
+            tip = " · ".join(parts)
+        if self.error:
+            text, color, tip = "!", (0.88, 0.11, 0.14), "Hotseat: " + self.error
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+        cr = cairo.Context(surface)
+        cr.arc(size / 2, size / 2, size / 2 - 1, 0, 2 * math.pi)
+        cr.set_source_rgb(*color)
+        cr.fill()
+        layout = PangoCairo.create_layout(cr)
+        layout.set_font_description(Pango.FontDescription("Sans Bold %d" % int(size * 0.40)))
+        layout.set_text(text, -1)
+        _, ext = layout.get_pixel_extents()
+        cr.set_source_rgb(1, 1, 1)
+        cr.move_to((size - ext.width) / 2 - ext.x, (size - ext.height) / 2 - ext.y)
+        PangoCairo.show_layout(cr, layout)
+        self.icon.set_from_pixbuf(Gdk.pixbuf_get_from_surface(surface, 0, 0, size, size))
+        self.icon.set_tooltip_text(tip)
+
+    def on_context_menu(self, icon, button, when):
+        menu = Gtk.Menu()
+        for text, fn in (("Settings…", self.open_settings), ("Setup…", self.open_setup),
+                         ("Refresh", self.refresh), ("Quit Hotseat", self.quit)):
+            item = Gtk.MenuItem(label=text)
+            item.connect("activate", lambda _i, f=fn: f())
+            menu.append(item)
+        menu.show_all()
+        menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, when)
+        self._context = menu  # keep it alive while open
+
+    # ----- the menu: account cards, then Settings / Setup / Refresh / Quit -----
+
+    def toggle_menu(self):
+        if self.menu and self.menu.get_visible():
+            self.hide_menu()
+            return
+        if time.monotonic() - self.hidden_at < 0.3:
+            return  # the click that closed it by taking focus
+        if not self.menu:
+            self.menu = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+            self.menu.set_decorated(False)
+            self.menu.set_resizable(False)
+            self.menu.set_skip_taskbar_hint(True)
+            self.menu.set_skip_pager_hint(True)
+            self.menu.set_keep_above(True)
+            self.menu.set_type_hint(Gdk.WindowTypeHint.POPUP_MENU)
+            self.menu.get_style_context().add_class("hs-panel")
+            self.menu.connect("focus-out-event", lambda *_: self.hide_menu() and False)
+            self.menu.connect("key-press-event", self.on_menu_key)
+        self.fill_menu()
+        self.place_menu()
+        self.menu.present()
+        self.refresh()  # menuWillOpen
+
+    def hide_menu(self):
+        if self.menu and self.menu.get_visible():
+            self.menu.hide()
+            self.hidden_at = time.monotonic()
+
+    def on_menu_key(self, _w, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.hide_menu()
+            return True
+        if not event.state & Gdk.ModifierType.CONTROL_MASK:
+            return False
+        key = Gdk.keyval_name(event.keyval) or ""
+        accounts = (self.snapshot or {}).get("accounts", [])
+        if key in "123456789" and len(key) == 1 and int(key) <= len(accounts):
+            self.clicked(self.begin_switch, accounts[int(key) - 1]["account"])
+        elif key == "comma":
+            self.clicked(self.open_settings)
+        elif key == "r":
+            self.refresh()
+        elif key == "q":
+            self.quit()
+        else:
+            return False
+        return True
+
+    def clicked(self, fn, *args):
+        """Like the Mac menu: close first, then act (so alerts are not
+        children of a menu that is going away)."""
+        self.hide_menu()
+        GLib.idle_add(lambda: fn(*args) and False)
+
+    def place_menu(self):
+        self.menu.show_all()
+        w, _h = self.menu.get_size()
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() or display.get_monitor(0)
+        area = monitor.get_workarea()
+        x, y = area.x + area.width - w - 8, area.y + 4
+        ok, _screen, rect, _orient = self.icon.get_geometry()
+        if ok and rect.width > 1 and rect.y < area.y + 10:
+            x = rect.x + rect.width // 2 - w // 2
+            y = max(area.y, rect.y + rect.height) + 4
+        self.menu.move(max(area.x + 4, min(x, area.x + area.width - w - 4)), y)
+
+    def fill_menu(self):
+        old = self.menu.get_child()
+        if old:
+            self.menu.remove(old)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        box.set_size_request(CARD_WIDTH, -1)
+        now = int(time.time())
+        snap = self.snapshot
+
+        def note(text, css="hs-dim"):
+            l = label(text, css, wrap=True)
+            l.set_margin_start(14), l.set_margin_end(14), l.set_margin_top(7), l.set_margin_bottom(7)
+            box.pack_start(l, False, False, 0)
+
+        if snap:
+            accounts = snap.get("accounts", [])
+            for i, a in enumerate(accounts):
+                if i:
+                    box.pack_start(Gtk.Separator(), False, False, 0)
+                box.pack_start(self.card(a, snap, now, i + 1 if i < 9 else None), False, False, 0)
+            if not accounts:
+                note("ⓘ No accounts yet — add one in Settings")
+            if snap.get("desktop", {}).get("pendingRecovery"):
+                note("⚠ Desktop switch was interrupted — run: hotseat desktop recover", "hs-orange")
+        elif not self.error:
+            note("Loading…")
+        if self.error:
+            note("⚠ " + self.error, "hs-warn")
+        box.pack_start(Gtk.Separator(), False, False, 0)
+        for text, key, fn in (("⚙  Settings…", "Ctrl+,", lambda: self.clicked(self.open_settings)),
+                              ("☑  Setup…", "", lambda: self.clicked(self.open_setup)),
+                              ("↻  Refresh", "Ctrl+R", self.refresh),
+                              ("⏻  Quit Hotseat", "Ctrl+Q", self.quit)):
+            row = Gtk.Box()
+            row.pack_start(label(text), True, True, 0)
+            if key:
+                row.pack_end(label(key, "hs-dim"), False, False, 0)
+            b = Gtk.Button()
+            b.set_relief(Gtk.ReliefStyle.NONE)
+            b.get_style_context().add_class("hs-menuitem")
+            b.add(row)
+            b.connect("clicked", lambda _b, f=fn: f())
+            box.pack_start(b, False, False, 0)
+        self.menu.add(box)
+        box.show_all()
+        self.menu.resize(1, 1)
+
+    def card(self, a, snap, now, shortcut):
+        """AccountCard.swift."""
+        name = a["account"]
+        idle = self.switching is None
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        ctx = card.get_style_context()
+        ctx.add_class("hs-card")
+        if a.get("current"):
+            ctx.add_class("hs-card-current")
+        if self.switching and self.switching != name:
+            card.set_opacity(0.5)
+
+        head = Gtk.Box(spacing=10)
+        head.pack_start(avatar(a, 30, a.get("current")), False, False, 0)
+        names = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        title = Gtk.Box(spacing=6)
+        title.pack_start(label(display_name(a), "hs-name"), False, False, 0)
+        if snap.get("recommend") == name:
+            title.pack_start(badge("Suggested"), False, False, 0)
+        names.pack_start(title, False, False, 0)
+        if a.get("email"):
+            names.pack_start(label(a["email"], "hs-dim"), False, False, 0)
+        head.pack_start(names, True, True, 0)
+        if self.switching == name:
+            sp = Gtk.Spinner()
+            sp.start()
+            head.pack_end(sp, False, False, 0)
+        elif shortcut:
+            head.pack_end(label("Ctrl+%d" % shortcut, "hs-dim"), False, False, 0)
+        headbtn = Gtk.Button()  # clicking the card moves both sides
+        headbtn.set_relief(Gtk.ReliefStyle.NONE)
+        headbtn.get_style_context().add_class("hs-headbtn")
+        headbtn.add(head)
+        headbtn.set_sensitive(idle)
+        headbtn.connect("clicked", lambda *_: self.clicked(self.begin_switch, name))
+        card.pack_start(headbtn, False, False, 0)
+
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        body.set_margin_start(44)
+        body.pack_start(self.meter("5h", a.get("fiveHour"), now), False, False, 0)
+        body.pack_start(self.meter("7d", a.get("sevenDay"), now), False, False, 0)
+        if a.get("loginProblem"):
+            body.pack_start(label("⚠ CLI login: " + a["loginProblem"], "hs-warn", wrap=True), False, False, 0)
+        if is_limited(a, now):
+            body.pack_start(label("⛔ " + fmt_limit(a.get("limit"), now), "hs-warn"), False, False, 0)
+        if is_model_limited(a, now):
+            # Orange, not red: the account's other models still work.
+            body.pack_start(label("⚠ " + fmt_model_limit(a["modelLimit"], now), "hs-orange"), False, False, 0)
+        if a.get("desktopProblem"):
+            body.pack_start(label("⚠ Desktop: " + a["desktopProblem"], "hs-orange", wrap=True), False, False, 0)
+        if a.get("error"):
+            body.pack_start(label("⛔ " + a["error"], "hs-warn", wrap=True), False, False, 0)
+        body.pack_start(label(fmt_age(observed_at(a), now), "hs-dim"), False, False, 0)
+
+        buttons = Gtk.Box(spacing=8, homogeneous=True)
+        dstate = a.get("desktop", "none")
+        for text, on, enabled, fn in (
+                ("CLI", bool(a.get("current")), idle, self.switch_cli_only),
+                ("Desktop not set up" if dstate == "none" else "Desktop", dstate == "active",
+                 idle and dstate != "none", self.switch_desktop_only)):
+            b = Gtk.Button(label=("✓ " + text) if on else text)
+            if on:
+                b.get_style_context().add_class("suggested-action")
+            b.set_sensitive(enabled)
+            b.connect("clicked", lambda _b, f=fn, o=on: None if o else self.clicked(f, name))
+            buttons.pack_start(b, True, True, 0)
+        body.pack_start(buttons, False, False, 2)
+        card.pack_start(body, False, False, 0)
+        return card
+
+    def meter(self, text, w, now):
+        row = Gtk.Box(spacing=8)
+        l = label(text, "hs-meter-label")
+        l.set_size_request(40, -1)
+        row.pack_start(l, False, False, 0)
+        bar = Gtk.ProgressBar()
+        bar.set_valign(Gtk.Align.CENTER)
+        pct = win_percent(w, now) if w else 0.0
+        bar.set_fraction(min(1.0, pct / 100))
+        if pct >= 100:
+            bar.get_style_context().add_class("hs-full")
+        elif pct >= 80:
+            bar.get_style_context().add_class("hs-high")
+        row.pack_start(bar, True, True, 0)
+        v = label(fmt_value(w, now), "hs-value", xalign=1.0)
+        v.set_size_request(124, -1)
+        row.pack_start(v, False, False, 0)
+        return row
+
+    # ----- alerts -----
+
+    def alert(self, message, info, buttons, destructive=False, check=None, entry=None):
+        """A modal alert; returns (index of the pressed button or -1, check
+        state, entry text)."""
+        parent = next((w for w in (self.settings, self.setup) if w is not None and w.is_active()), None)
+        dlg = Gtk.MessageDialog(transient_for=parent, modal=True, message_type=Gtk.MessageType.QUESTION,
+                                buttons=Gtk.ButtonsType.NONE, text=message)
+        dlg.format_secondary_text(info)
+        for i, b in reversed(list(enumerate(buttons))):
+            w = dlg.add_button(b, i)
+            if i == 0:
+                w.get_style_context().add_class("destructive-action" if destructive else "suggested-action")
+        dlg.set_default_response(0)
+        area = dlg.get_message_area()
+        box, field = None, None
+        if check:
+            box = Gtk.CheckButton(label=check)
+            area.pack_end(box, False, False, 0)
+        if entry is not None:
+            field = Gtk.Entry()
+            field.set_placeholder_text(entry)
+            field.set_activates_default(True)
+            area.pack_end(field, False, False, 0)
+        area.show_all()
+        dlg.set_keep_above(True)
+        if parent is None:
+            dlg.set_position(Gtk.WindowPosition.CENTER)
+        answer = dlg.run()
+        state = (answer if answer >= 0 else -1, bool(box and box.get_active()), field.get_text() if field else "")
+        dlg.destroy()
+        return state
+
+    def show(self, text):
+        self.alert("Hotseat", text, ["OK"])
+
+    def report(self, status, stderr):
+        self.show(error_text(status, stderr))
+
+    # ----- switching (AppDelegate "Switching") -----
+
+    def finish_switch(self):
+        self.switching = None
+        self.render()
+        self.refresh()
+
+    def start_switch(self, name, args, timeout, done=None):
+        self.switching = name
+        self.render()
+
+        def finished(result):
+            if done and done(result):
+                return
+            status, _out, err = result
+            if status != 0:
+                self.report(status, err)
+            self.finish_switch()
+        self.background(lambda: run_raw(args, timeout), finished)
+
+    def switch_cli_only(self, name):
+        if self.switching or not self.snapshot or self.snapshot.get("current") == name:
+            return
+        self.start_switch(name, ["use", name, "--cli-only", "--json"], 30)
+
+    def switch_desktop_only(self, name):
+        snap = self.snapshot
+        if self.switching or not snap or snap.get("desktop", {}).get("active") == name:
+            return
+        restart = not self.ask_before_restart
+
+        def done(result):
+            # hotseat decides on live state whether Desktop must restart:
+            # with --if-idle it exits 3 instead of quitting a running one.
+            if result[0] == 3 and not restart:
+                self.ask_to_restart_desktop(name, desktop_only=True)
+                return True
+            return False
+        self.start_switch(name, self.desktop_switch_args(name, restart), 120, done)
+
+    @staticmethod
+    def desktop_switch_args(name, restart):
+        return ["desktop", "switch", name, "--resume", "current", "--json"] + ([] if restart else ["--if-idle"])
+
+    def begin_switch(self, name):
+        snap = self.snapshot
+        if self.switching or not snap:
+            return
+        active = snap.get("desktop", {}).get("active")
+        if name == snap.get("current") and (not active or active == name):
+            return
+        restart = not self.ask_before_restart
+
+        def done(result):
+            if result[0] == 3 and not restart:
+                self.ask_to_restart_desktop(name)
+                return True
+            return False
+        self.start_switch(name, ["use", name] + (["--yes"] if restart else []) + ["--json"], 120, done)
+
+    def ask_to_restart_desktop(self, name, desktop_only=False):
+        who = self.label_of(name)
+        terminals = ("Terminal sessions are not affected." if desktop_only
+                     else "New terminal sessions already use %s." % who)
+        pressed, dont_ask, _ = self.alert(
+            "Restart Claude Desktop as %s?" % who,
+            "%s Hotseat will quit Claude Desktop and reopen it as %s on the session you were in. Anything "
+            "running in Desktop right now will stop." % (terminals, who),
+            ["Restart Desktop", "Not Now"], check="Don't ask again")
+        if pressed != 0:
+            self.finish_switch()
+            return
+        if dont_ask:
+            self.set_ask_before_restart(False)
+        if desktop_only:
+            self.start_switch(name, self.desktop_switch_args(name, True), 120)
+        else:
+            self.start_switch(name, ["use", name, "--yes", "--json"], 120)
+
+    # ----- Settings (SettingsView.swift) -----
+
+    def open_settings(self):
+        self.prefs = load_prefs()
+        if self.settings is None:
+            win = Gtk.Window(title="Hotseat Settings")
+            win.set_default_size(600, 560)
+            win.set_resizable(False)
+            win.set_position(Gtk.WindowPosition.CENTER)
+            win.connect("destroy", self.on_settings_closed)
+            self.settings = win
+            self.fill_settings()
+            self.background(lambda: run_raw(["version", "--json"], 15), self.on_version)
+        self.settings.present()
+        self.refresh()
+
+    def on_settings_closed(self, *_):
+        self.settings = None
+        self.settings_tab = 0
+        self.note_drafts = {}
+
+    def on_version(self, result):
+        self.cli_version = (parse_object(result[1]) or {}).get("version") if result[0] == 0 else None
+        if self.settings:
+            self.fill_settings()
+
+    def fill_settings(self):
+        win = self.settings
+        focus = win.get_focus()
+        typing = isinstance(focus, Gtk.Entry) and focus.get_name() in self.note_drafts
+        if typing:
+            return  # do not rebuild under the user's cursor
+        old = win.get_child()
+        if old:
+            if isinstance(old, Gtk.Notebook):
+                self.settings_tab = old.get_current_page()
+            win.remove(old)
+        book = Gtk.Notebook()
+        book.set_border_width(16)
+        book.append_page(self.accounts_settings(), Gtk.Label(label="Accounts"))
+        book.append_page(self.general_settings(), Gtk.Label(label="General"))
+        win.add(book)
+        book.show_all()
+        book.set_current_page(self.settings_tab)
+        book.connect("switch-page", lambda _b, _p, n: setattr(self, "settings_tab", n))
+
+    def accounts_settings(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        page.set_border_width(12)
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        for a in (self.snapshot or {}).get("accounts", []):
+            rows.pack_start(self.settings_row(a), False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(rows)
+        page.pack_start(scroll, True, True, 0)
+        foot = Gtk.Box(spacing=8)
+        add = Gtk.Button(label="＋ Add Account…")
+        add.connect("clicked", lambda *_: self.prompt_add_account())
+        foot.pack_start(add, False, False, 0)
+        if self.error:
+            foot.pack_end(label("⚠ " + self.error, "hs-warn", wrap=True, chars=50), False, False, 0)
+        page.pack_start(foot, False, False, 0)
+        return page
+
+    def settings_row(self, a):
+        name = a["account"]
+        row = Gtk.Box(spacing=12)
+        row.get_style_context().add_class("hs-row")
+
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        left.pack_start(avatar(a, 36, True), False, False, 0)
+        change = Gtk.MenuButton(label="Change")
+        change.set_relief(Gtk.ReliefStyle.NONE)
+        menu = Gtk.Menu()
+        for symbol, emoji in ICON_CHOICES:
+            item = Gtk.MenuItem(label="%s  %s" % (emoji, symbol))
+            item.connect("activate", lambda _i, e=emoji: self.set_icon(name, e))
+            menu.append(item)
+        menu.append(Gtk.SeparatorMenuItem())
+        item = Gtk.MenuItem(label="Initial (default)")
+        item.connect("activate", lambda _i: self.set_icon(name, None))
+        menu.append(item)
+        menu.show_all()
+        change.set_popup(menu)
+        left.pack_start(change, False, False, 0)
+        row.pack_start(left, False, False, 0)
+
+        mid = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        line = Gtk.Box(spacing=6)
+        entry = Gtk.Entry()
+        entry.set_name(name)
+        entry.set_placeholder_text(a.get("email") or name)
+        entry.set_text(self.note_drafts.get(name, a.get("note") or ""))
+        save = Gtk.Button(label="Save")
+        save.set_no_show_all(True)
+
+        def edited():
+            return name in self.note_drafts and self.note_drafts[name].strip() != (a.get("note") or "")
+
+        def on_changed(e):
+            self.note_drafts[name] = e.get_text()
+            save.set_visible(edited())
+        entry.connect("changed", on_changed)
+        entry.connect("activate", lambda e: self.save_note(name, e.get_text()))
+        save.connect("clicked", lambda *_: self.save_note(name, entry.get_text()))
+        save.set_visible(edited())
+        line.pack_start(entry, True, True, 0)
+        line.pack_start(save, False, False, 0)
+        mid.pack_start(line, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=10, row_spacing=3)
+        n = 0
+
+        def add_row(key, widget):
+            nonlocal n
+            grid.attach(label(key, "hs-secondary"), 0, n, 1, 1)
+            grid.attach(widget, 1, n, 1, 1)
+            n += 1
+        add_row("Email", label(a.get("email") or "—", selectable=True))
+        add_row("Account", label(name, selectable=True))
+        add_row("Config", label(tilde(a.get("configDir")), selectable=True))
+        if a.get("loginProblem"):
+            add_row("Login", label("⚠ " + a["loginProblem"], "hs-warn", wrap=True, chars=40))
+        desk = Gtk.Box(spacing=8)
+        desk.pack_start(label(self.desktop_text(a), wrap=True, chars=40), False, False, 0)
+        if a.get("desktop", "none") == "none":
+            b = Gtk.Button(label="Set Up Desktop…")
+            b.connect("clicked", lambda *_: self.set_up_desktop(name))
+            desk.pack_start(b, False, False, 0)
+        add_row("Desktop", desk)
+        mid.pack_start(grid, False, False, 0)
+        row.pack_start(mid, True, True, 0)
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        badges = Gtk.Box(spacing=4)
+        badges.set_halign(Gtk.Align.END)
+        if a.get("current"):
+            badges.pack_start(badge("CLI", True), False, False, 0)
+        if a.get("desktop") == "active":
+            badges.pack_start(badge("Desktop", True), False, False, 0)
+        right.pack_start(badges, False, False, 0)
+        remove = Gtk.Button(label="🗑 Remove…")
+        remove.get_style_context().add_class("destructive-action")
+        blocker = self.remove_blocker(a)
+        remove.set_sensitive(blocker is None)
+        remove.set_tooltip_text(blocker or "Sign this account out and move its files into a Hotseat backup")
+        remove.connect("clicked", lambda *_: self.confirm_remove(name))
+        remove.set_halign(Gtk.Align.END)
+        right.pack_start(remove, False, False, 0)
+        row.pack_start(right, False, False, 0)
+        return row
+
+    def remove_blocker(self, a):
+        if a.get("configDir") == os.path.join(HOME, ".claude"):
+            return "The default account holds every account's shared work data"
+        if a.get("current"):
+            return "Switch the CLI to another account first"
+        if a.get("desktop") == "active":
+            return "Switch Claude Desktop to another account first"
+        return None
+
+    def desktop_text(self, a):
+        p = a.get("desktopProblem")
+        if p:
+            return "Set up — switch to it and sign in in Claude Desktop" if p == "not logged in yet" else p
+        return {"active": "In use", "parked": "Ready"}.get(a.get("desktop"), "Not set up")
+
+    def general_settings(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        page.set_border_width(12)
+        frame = Gtk.ListBox()
+        frame.set_selection_mode(Gtk.SelectionMode.NONE)
+        frame.get_style_context().add_class("hs-row")
+
+        def form_row(text, widget):
+            r = Gtk.Box(spacing=12)
+            r.set_border_width(8)
+            r.pack_start(label(text), True, True, 0)
+            r.pack_end(widget, False, False, 0)
+            frame.add(r)
+
+        launch = Gtk.Switch()
+        launch.set_active(os.path.exists(AUTOSTART))
+        launch.connect("notify::active", lambda s, _p: self.set_launch_at_login(s.get_active()))
+        form_row("Launch at Login", launch)
+        ask = Gtk.Switch()
+        ask.set_active(self.ask_before_restart)
+        ask.connect("notify::active", lambda s, _p: self.set_ask_before_restart(s.get_active()))
+        form_row("Ask before restarting Claude Desktop", ask)
+        form_row("hotseat CLI", label(HOTSEAT if os.access(HOTSEAT, os.X_OK) else "not found", "hs-secondary",
+                                      selectable=True))
+        form_row("Version", label(self.cli_version or "dev", "hs-secondary"))
+        page.pack_start(frame, False, False, 0)
+        return page
+
+    def run_then_refresh(self, args, timeout, ok=None):
+        def done(result):
+            status, _out, err = result
+            if status != 0:
+                self.report(status, err)
+            elif ok:
+                ok()
+            self.refresh()
+        self.background(lambda: run_raw(args, timeout), done)
+
+    def set_icon(self, name, icon):
+        self.run_then_refresh(["icon", name] + ([icon] if icon else []) + ["--json"], 30)
+
+    def save_note(self, name, text):
+        text = text.strip()
+        self.settings.set_focus(None)
+        self.run_then_refresh(["note", name] + ([text] if text else []) + ["--json"], 30,
+                              ok=lambda: self.note_drafts.pop(name, None))
+
+    def prompt_add_account(self):
+        pressed, _, name = self.alert(
+            "Add a Claude account",
+            "Pick a short name for it (letters, digits, . _ -). Terminal opens with the official Claude login; "
+            "sign in there with the new account.",
+            ["Continue", "Cancel"], entry="e.g. work")
+        if pressed != 0:
+            return
+        name = name.strip()
+        if not valid_name(name):
+            self.show('"%s" is not a valid account name: use letters, digits, . _ - and start with a letter '
+                      "or digit." % name)
+            return
+        # An interactive login shell, so PATH (and the real claude binary
+        # that `hotseat add` looks for) is the one the user's terminals see.
+        line = "%s add %s; echo; echo 'Done. You can close this window.'; exec bash" % (
+            shlex.quote(HOTSEAT), shlex.quote(name))
+        try:
+            subprocess.Popen(["gnome-terminal", "--title=Hotseat: add " + name, "--", "bash", "-ilc", line])
+        except OSError:
+            try:
+                subprocess.Popen(["x-terminal-emulator", "-e", "bash", "-ilc", line])
+            except OSError as e:
+                self.show("Could not open a terminal: %s. Run in one: hotseat add %s" % (e.strerror, name))
+
+    def set_up_desktop(self, name):
+        who = self.label_of(name)
+        pressed, _, _ = self.alert(
+            "Set up Claude Desktop for %s?" % who,
+            "Claude Desktop quits if it is running and reopens with an empty profile for this account. Sign in "
+            "there with %s. Your current Desktop data is kept for its own account." % who,
+            ["Set Up", "Cancel"])
+        if pressed == 0:
+            # Shown as a switch: quitting Desktop can take 20 s, and the
+            # icon and cards should say something is happening meanwhile.
+            self.start_switch(name, ["desktop", "add", name, "--yes"], 120)
+
+    def confirm_remove(self, name):
+        pressed, _, _ = self.alert(
+            "Remove %s?" % self.label_of(name),
+            "Hotseat signs this account out (claude auth logout) and moves its config dir and Claude Desktop "
+            "profile into a Hotseat backup; nothing is deleted. Close any terminal using it first. Your shared "
+            "work (projects, history) stays.",
+            ["Remove", "Cancel"], destructive=True)
+        if pressed != 0:
+            return
+
+        def done(result):
+            status, out, err = result
+            # The account can be gone while Claude Code failed to sign it
+            # out; the result says so, the exit code does not.
+            problem = error_text(status, err) if status != 0 else removal_problem(name, out)
+            if problem:
+                self.show(problem)
+            self.refresh()
+        self.background(lambda: run_raw(["remove", name, "--yes", "--json"], 60), done)
+
+    def set_launch_at_login(self, on):
+        try:
+            if on:
+                os.makedirs(os.path.dirname(AUTOSTART), exist_ok=True)
+                with open(AUTOSTART, "w") as f:
+                    f.write(autostart_entry(SELF))
+            elif os.path.exists(AUTOSTART):
+                os.remove(AUTOSTART)
+        except OSError as e:
+            self.show("Launch at Login: " + (e.strerror or str(e)))
+            # The switch must show what is on disk, not what was asked for.
+            if self.settings:
+                GLib.idle_add(lambda: self.fill_settings() and False)
+
+    def set_ask_before_restart(self, ask):
+        self.prefs["skipDesktopConfirm"] = not ask
+        try:
+            save_prefs(self.prefs)
+        except OSError as e:
+            self.show("Could not save preferences: " + (e.strerror or str(e)))
+
+    # ----- Setup (SetupView.swift) -----
+
+    def reload_setup(self, then=None):
+        def work():
+            v = run_raw(["version", "--json"], 15)
+            s = run_raw(["setup", "status", "--json"], 30)
+            return v, s
+
+        def done(result):
+            (vs, vout, verr), (ss, sout, _serr) = result
+            self.setup_load_error = None
+            self.setup_version = (parse_object(vout) or {}).get("version") if vs == 0 else None
+            if vs != 0:
+                self.setup_load_error = error_text(vs, verr)
+            self.setup_status = parse_object(sout) if ss == 0 else None
+            self.cli_version = self.setup_version
+            if self.setup:
+                self.fill_setup()
+            if then:
+                then()
+        failed = lambda e: ((None, "", "Hotseat menu: %s" % e),) * 2  # noqa: E731
+        self.background(work, done, failed)
+
+    def steps(self):
+        return setup_steps(self.setup_status, self.setup_version)
+
+    def open_setup_if_needed(self):
+        """Opens Setup by itself once per version while a step is left."""
+        pending = any(not s[2] for s in self.steps())
+        version = self.setup_version or "dev"
+        if pending and self.prefs.get("setupShownForVersion") != version:
+            self.prefs["setupShownForVersion"] = version
+            try:
+                save_prefs(self.prefs)
+            except OSError:
+                pass
+            self.open_setup()
+
+    def open_setup(self):
+        if self.setup is None:
+            win = Gtk.Window(title="Hotseat Setup")
+            win.set_default_size(560, 520)
+            win.set_resizable(False)
+            win.set_position(Gtk.WindowPosition.CENTER)
+            win.connect("destroy", lambda *_: setattr(self, "setup", None))
+            self.setup = win
+            self.fill_setup()
+        self.setup.present()
+        self.reload_setup()
+
+    def fill_setup(self):
+        win = self.setup
+        old = win.get_child()
+        if old:
+            win.remove(old)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        box.set_border_width(20)
+        head = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        head.pack_start(label("Set up Hotseat", "hs-title"), False, False, 0)
+        head.pack_start(label("Each step says what it changes. Nothing runs until you click Run.",
+                              "hs-secondary"), False, False, 0)
+        box.pack_start(head, False, False, 0)
+        if self.setup_load_error:
+            box.pack_start(label("⚠ " + self.setup_load_error, "hs-warn", wrap=True, chars=70), False, False, 0)
+        steps = self.steps()
+        cli_ready = bool(steps and steps[0][2])
+        desktop_absent = (self.setup_status or {}).get("desktop", "absent") == "absent"
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for sid, title, done, detail, commands in steps:
+            row = Gtk.Box(spacing=12)
+            row.get_style_context().add_class("hs-step")
+            mark = label("✔" if done else "○", "hs-done" if done else "hs-todo")
+            mark.set_valign(Gtk.Align.START)
+            row.pack_start(mark, False, False, 0)
+            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            text.pack_start(label(title, "hs-step-title"), False, False, 0)
+            text.pack_start(label(detail, "hs-secondary", wrap=True, chars=56), False, False, 0)
+            if sid in self.setup_errors:
+                text.pack_start(label(self.setup_errors[sid], "hs-warn", wrap=True, chars=56, selectable=True),
+                                False, False, 0)
+            row.pack_start(text, True, True, 0)
+            if self.setup_running == sid:
+                sp = Gtk.Spinner()
+                sp.start()
+                sp.set_valign(Gtk.Align.START)
+                row.pack_end(sp, False, False, 0)
+            elif not done:
+                # Later steps write the CLI's path into settings.json and the
+                # shim, so it must be installed for good before they run.
+                run = Gtk.Button(label="Run")
+                run.set_valign(Gtk.Align.START)
+                run.set_sensitive(self.setup_running is None and commands is not None
+                                  and (sid == "cli" or cli_ready)
+                                  and not (sid == "desktop" and desktop_absent))
+                run.connect("clicked", lambda _b, s=sid, c=commands: self.run_setup_step(s, c))
+                row.pack_end(run, False, False, 0)
+            rows.pack_start(row, False, False, 0)
+        box.pack_start(rows, True, True, 0)
+        foot = Gtk.Box()
+        again = Gtk.Button(label="Check Again")
+        again.set_sensitive(self.setup_running is None)
+        again.connect("clicked", lambda *_: self.reload_setup())
+        foot.pack_start(again, False, False, 0)
+        done_btn = Gtk.Button(label="Done")
+        done_btn.get_style_context().add_class("suggested-action")
+        done_btn.connect("clicked", lambda *_: self.setup.close())
+        foot.pack_end(done_btn, False, False, 0)
+        box.pack_start(foot, False, False, 0)
+        win.add(box)
+        box.show_all()
+
+    def run_setup_step(self, sid, commands):
+        if self.setup_running is not None or not commands:
+            return
+        self.setup_running = sid
+        self.setup_errors.pop(sid, None)
+        self.fill_setup()
+
+        def work():
+            for args in commands:
+                status, _out, err = run_raw(args, 120)
+                if status != 0:
+                    return error_text(status, err)
+            return None
+
+        def done(problem):
+            if problem:
+                self.setup_errors[sid] = problem
+            self.setup_running = None
+            self.reload_setup()
+            self.refresh()
+        self.background(work, done, lambda e: "Hotseat menu: %s" % e)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    raise SystemExit(Indicator().run(None))

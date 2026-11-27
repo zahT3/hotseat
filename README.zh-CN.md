@@ -169,7 +169,7 @@ Hotseat 是给确实合法拥有多个账号的人用的，比如工作号和个
 
 **不要用 Claude Desktop 里的 Log out 来换账号。** 那会在 Anthropic 那边让这个账号退出登录，它的配置得重新登录。请用 Hotseat 切换。
 
-**支持 Windows 或 Linux 吗？** Linux：命令行工具可以用，包括切换 Linux 版 Claude Desktop（数据在 `~/.config/Claude`）。用 `go build -o ~/.local/bin/hotseat ./cmd/hotseat` 编译，然后运行 `hotseat init`、`hotseat shim install`（写入 `~/.bashrc`；登录 shell 是 zsh 时写入 `~/.zshrc`）、`hotseat statusline install`、`hotseat hook install` 和 `hotseat desktop adopt`。撞到限额时用 zenity 弹窗询问。重新打开 Desktop 需要 systemd 用户会话（`systemd-run --user`），并遵循 `XDG_CONFIG_HOME`。Hotseat 绝不强制结束 Desktop：如果它没有及时退出，切换会中止并列出还在运行的进程。Linux 上暂时没有菜单栏 App。Windows：暂不支持。
+**支持 Windows 或 Linux 吗？** Linux：命令行工具可以用，包括切换 Linux 版 Claude Desktop（数据在 `~/.config/Claude`）。用 `go build -o ~/.local/bin/hotseat ./cmd/hotseat` 编译，然后运行 `hotseat init`、`hotseat shim install`（写入 `~/.bashrc`；登录 shell 是 zsh 时写入 `~/.zshrc`）、`hotseat statusline install`、`hotseat hook install` 和 `hotseat desktop adopt`。撞到限额时用 zenity 弹窗询问。重新打开 Desktop 需要 systemd 用户会话（`systemd-run --user`），并遵循 `XDG_CONFIG_HOME`。Hotseat 绝不强制结束 Desktop：如果它没有及时退出，切换会中止并列出还在运行的进程。适用于 GNOME（X11 会话）的顶栏 App 在 [`linux/`](linux/README.md)：实验性，由社区维护，可能落后于 Mac 版。Windows：暂不支持。
 
 **App 读不到我的 `HOTSEAT_HOME`。** App 不会继承你在 shell 里设置的变量。如果你用了它，就让 App 指向一个包装脚本：`defaults write io.github.zahT3.hotseat hotseatPath /path/to/script`。
 
